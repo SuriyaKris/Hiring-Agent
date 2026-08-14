@@ -1,0 +1,10 @@
+[
+  {
+    "name": "Jane Smith",
+    "url": "https://indeed.com/r/jane-s",
+    "expected_sections": [
+      "resume",
+      "headline"
+    ]
+  }
+]

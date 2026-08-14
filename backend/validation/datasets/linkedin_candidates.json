@@ -1,0 +1,19 @@
+[
+  {
+    "name": "Sarah Johnson",
+    "url": "https://www.linkedin.com/in/sarah-j",
+    "expected_sections": [
+      "about",
+      "experience",
+      "skills"
+    ]
+  },
+  {
+    "name": "John Doe",
+    "url": "https://www.linkedin.com/in/john-d",
+    "expected_sections": [
+      "experience",
+      "skills"
+    ]
+  }
+]

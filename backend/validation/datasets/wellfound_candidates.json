@@ -1,0 +1,10 @@
+[
+  {
+    "name": "Alex Rivera",
+    "url": "https://wellfound.com/p/alex-r",
+    "expected_sections": [
+      "about",
+      "experience"
+    ]
+  }
+]

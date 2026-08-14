@@ -1,0 +1,10 @@
+[
+  {
+    "name": "Stripe",
+    "url": "https://www.stripe.com",
+    "expected_sections": [
+      "overview",
+      "specialties"
+    ]
+  }
+]

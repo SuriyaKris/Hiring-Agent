@@ -1,0 +1,72 @@
+"""
+Config — reads .env and exposes typed settings.
+LLM_PROVIDER switches between free (Groq) and paid (OpenAI).
+"""
+from pydantic_settings import BaseSettings
+from functools import lru_cache
+
+
+class Settings(BaseSettings):
+    # LLM provider switch
+    llm_provider: str = "groq"          # "groq" (free POC) | "openai" (production)
+
+    # Groq — free tier
+    groq_api_key: str = ""
+    groq_fast_model: str = "llama-3.1-8b-instant"
+    groq_smart_model: str = "llama-3.3-70b-versatile"
+
+    # OpenAI — paid production
+    openai_api_key: str = ""
+    openai_fast_model: str = "gpt-4o-mini"
+    openai_smart_model: str = "gpt-4o"
+
+    # Data sources
+    apollo_api_key: str = ""            # blank = use mock data
+    apollo_client_id: str = ""
+    apollo_client_secret: str = ""
+    apollo_redirect_uri: str = ""
+    serpapi_key: str = ""
+    proxycurl_api_key: str = ""
+
+    # App credentials for browser agents
+    linkedin_username: str = ""
+    linkedin_password: str = ""
+    indeed_username: str = ""
+    indeed_password: str = ""
+
+    # App
+    app_env: str = "development"
+    app_port: int = 8000
+    frontend_url: str = "http://localhost:5173"
+
+    # Database
+    database_url: str = "sqlite+aiosqlite:///./hiring_agent.db"
+
+    # LangSmith (optional)
+    langchain_tracing_v2: bool = False
+    langchain_api_key: str = ""
+    langchain_project: str = "hiring-agent-v2"
+
+    @property
+    def fast_model(self) -> str:
+        """Return the fast model name for the active provider."""
+        if self.llm_provider == "openai":
+            return self.openai_fast_model
+        return self.groq_fast_model
+
+    @property
+    def smart_model(self) -> str:
+        """Return the smart model name for the active provider."""
+        if self.llm_provider == "openai":
+            return self.openai_smart_model
+        return self.groq_smart_model
+
+
+    class Config:
+        env_file = ".env"
+        extra = "ignore"
+
+
+@lru_cache()
+def get_settings() -> Settings:
+    return Settings()

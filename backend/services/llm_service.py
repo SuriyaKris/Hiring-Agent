@@ -1,0 +1,147 @@
+"""
+LLM Service — single abstraction for Groq (free POC) and OpenAI (production).
+
+POC:  LLM_PROVIDER=groq   -> uses Groq API (llama-3.1-8b-instant / mixtral-8x7b)
+Prod: LLM_PROVIDER=openai -> uses gpt-4o-mini / gpt-4o
+
+To switch provider: change LLM_PROVIDER in .env — no code changes needed.
+"""
+
+import json
+import re
+from tenacity import retry, stop_after_attempt, wait_exponential
+from loguru import logger
+from config import get_settings
+
+settings = get_settings()
+
+
+def _groq_client():
+    from groq import AsyncGroq
+    if not settings.groq_api_key:
+        raise ValueError(
+            "GROQ_API_KEY is not set.\n"
+            "  Get a free key at https://console.groq.com\n"
+            "  Then run: python scripts/switch_provider.py set-groq YOUR_KEY"
+        )
+    return AsyncGroq(api_key=settings.groq_api_key)
+
+
+def _openai_client():
+    from openai import AsyncOpenAI
+    if not settings.openai_api_key:
+        raise ValueError(
+            "OPENAI_API_KEY is not set.\n"
+            "  Run: python scripts/switch_provider.py set-openai YOUR_KEY"
+        )
+    return AsyncOpenAI(api_key=settings.openai_api_key)
+
+
+def _clean_json(text: str) -> str:
+    """Strip markdown code fences that some models add despite instructions."""
+    text = text.strip()
+    # Remove ```json ... ``` or ``` ... ```
+    text = re.sub(r"^```(?:json)?\s*", "", text)
+    text = re.sub(r"\s*```$", "", text)
+    return text.strip()
+
+
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
+async def complete_json(
+    system_prompt: str,
+    user_message: str,
+    use_smart_model: bool = False,
+    temperature: float = 0.1,
+    max_tokens: int = 2000,
+) -> dict:
+    """
+    Call the LLM and return parsed JSON dict.
+    Handles markdown fence stripping for models that ignore json_object mode.
+    """
+    model    = settings.smart_model if use_smart_model else settings.fast_model
+    provider = settings.llm_provider
+    logger.debug(f"LLM call | provider={provider} model={model}")
+
+    # Tell the model explicitly to return only JSON
+    json_instruction = "\n\nIMPORTANT: Return ONLY valid JSON. No explanation, no markdown, no code fences."
+    full_system = system_prompt + json_instruction
+
+    if provider == "openai":
+        client   = _openai_client()
+        response = await client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": full_system},
+                {"role": "user",   "content": user_message},
+            ],
+            temperature=temperature,
+            max_tokens=max_tokens,
+            response_format={"type": "json_object"},  # OpenAI enforces JSON
+        )
+        raw = response.choices[0].message.content
+
+    elif provider == "groq":
+        client = _groq_client()
+        # Groq supports json_object on llama-3.1 and mixtral models
+        # Use it when available, fall back on parse error
+        try:
+            response = await client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": full_system},
+                    {"role": "user",   "content": user_message},
+                ],
+                temperature=temperature,
+                max_tokens=max_tokens,
+                response_format={"type": "json_object"},
+            )
+        except Exception:
+            # Some Groq models don't support response_format — retry without it
+            response = await client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": full_system},
+                    {"role": "user",   "content": user_message},
+                ],
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+        raw = response.choices[0].message.content
+
+    else:
+        raise ValueError(f"Unknown LLM_PROVIDER: {provider!r}. Set to 'groq' or 'openai' in .env")
+
+    cleaned = _clean_json(raw)
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError as e:
+        logger.error(f"JSON parse failed.\nRaw:\n{raw}\nCleaned:\n{cleaned}")
+        raise ValueError(f"LLM returned invalid JSON: {e}") from e
+
+
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
+async def complete_text(
+    system_prompt: str,
+    user_message: str,
+    use_smart_model: bool = False,
+    temperature: float = 0.7,
+    max_tokens: int = 1000,
+) -> str:
+    """Return plain text (non-JSON) LLM response."""
+    model    = settings.smart_model if use_smart_model else settings.fast_model
+    provider = settings.llm_provider
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user",   "content": user_message},
+    ]
+    kwargs = dict(model=model, messages=messages, temperature=temperature, max_tokens=max_tokens)
+
+    if provider == "openai":
+        response = await _openai_client().chat.completions.create(**kwargs)
+    elif provider == "groq":
+        response = await _groq_client().chat.completions.create(**kwargs)
+    else:
+        raise ValueError(f"Unknown LLM_PROVIDER: {provider!r}")
+
+    return response.choices[0].message.content
