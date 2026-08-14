@@ -1,1 +1,0 @@
-# Browser models package wrapper

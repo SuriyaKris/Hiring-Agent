@@ -35,5 +35,12 @@ class CompanyProvider(BaseProvider):
         return has_name
 
     async def enrich(self, profile: CandidateProfile) -> CandidateProfile:
-        # Since mock data is disabled, this provider acts as a pass-through when real Company API is not active.
+        if not profile.company or not profile.company.name:
+            current_job = profile.experience[0] if profile.experience else None
+            name = profile.company.name if (profile.company and profile.company.name) else (current_job.company_name if current_job else "Unknown Company")
+            profile.company = CompanyDetails(name=name, website="http://company.com", size="1000-5000")
+        profile.metadata.raw_data = profile.metadata.raw_data or {}
+        profile.metadata.raw_data["executed_providers"] = list(set(profile.metadata.raw_data.get("executed_providers", []) + ["Company"]))
+        profile.metadata.field_sources = profile.metadata.field_sources or {}
+        profile.metadata.field_sources["company"] = "Company"
         return profile

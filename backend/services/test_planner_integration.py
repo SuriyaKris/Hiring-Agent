@@ -27,21 +27,7 @@ class TestPlannerIntegration(unittest.TestCase):
 
     # ── Routing tests ─────────────────────────────────────────────────────────
 
-    def test_linkedin_url_routes_to_playwright(self):
-        """Profile with LinkedIn URL + missing Skills/Summary → Planner schedules Playwright."""
-        profile = CandidateProfile(
-            basic_info=BasicInfo(
-                full_name="Sarah Johnson",
-                linkedin_url="https://linkedin.com/in/sarah-j",
-                email="sarah@example.com",
-            ),
-            metadata=SchemaMetadata(source="apollo", raw_data={}),
-        )
-        validation = validate_profile(profile)
-        plan = asyncio.run(self.planner.plan(profile, validation))
 
-        self.assertIn("Playwright", plan.providers)
-        self.assertNotIn("Resume", plan.providers)
 
     def test_resume_path_routes_to_resume_provider(self):
         """Profile with resume_path in raw_data + missing fields → Planner schedules Resume."""
@@ -108,17 +94,16 @@ class TestPlannerIntegration(unittest.TestCase):
         profile = CandidateProfile(
             basic_info=BasicInfo(
                 full_name="Sarah Johnson",
-                linkedin_url="https://linkedin.com/in/sarah-j",
             ),
             metadata=SchemaMetadata(
                 source="apollo",
-                raw_data={"executed_providers": ["Playwright"]},
+                raw_data={"has_resume": True, "executed_providers": ["Resume"]},
             ),
         )
         validation = validate_profile(profile)
         plan = asyncio.run(self.planner.plan(profile, validation))
 
-        self.assertNotIn("Playwright", plan.providers)
+        self.assertNotIn("Resume", plan.providers)
 
     # ── Full enrichment execution loop ────────────────────────────────────────
 
@@ -170,10 +155,9 @@ class TestPlannerIntegration(unittest.TestCase):
         profile = CandidateProfile(
             basic_info=BasicInfo(
                 full_name="Multi Provider",
-                linkedin_url="https://linkedin.com/in/multi",
                 github_url="https://github.com/multi",
             ),
-            metadata=SchemaMetadata(source="test", raw_data={}),
+            metadata=SchemaMetadata(source="test", raw_data={"has_resume": True}),
         )
         validation = validate_profile(profile)
         plan = asyncio.run(self.planner.plan(profile, validation))

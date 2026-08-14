@@ -14,7 +14,6 @@ from schemas.candidate_profile import (
     CandidateProfile, BasicInfo, SchemaMetadata, ExperienceItem, ProfileSummary,
     SkillItem, EducationItem, CertificationItem, LanguageItem, ProjectItem, AwardItem, CompanyDetails
 )
-from providers.browser_automation_provider import BrowserAutomationProvider
 from services.profile_validator import validate_profile
 from services.enrichment_planner import EnrichmentPlanner
 
@@ -22,24 +21,6 @@ from services.enrichment_planner import EnrichmentPlanner
 class TestEnrichmentPlanner(unittest.TestCase):
     def setUp(self):
         self.planner = EnrichmentPlanner()
-
-    def test_plan_schedules_playwright(self):
-        """Test that Playwright is scheduled when LinkedIn URL exists and summary/skills/experience are missing."""
-        profile = CandidateProfile(
-            basic_info=BasicInfo(
-                full_name="Sarah Johnson",
-                linkedin_url="https://linkedin.com/in/sarah-j"
-            ),
-            metadata=SchemaMetadata(source="test", raw_data={}),
-        )
-        val_result = validate_profile(profile)
-        plan = asyncio.run(self.planner.plan(profile, val_result))
-
-        self.assertIn("Playwright", plan.providers)
-        self.assertIn("Running Playwright due to missing:", plan.reason)
-        # Cost check: Playwright cost is 0.05
-        self.assertGreaterEqual(plan.estimated_cost, 0.05)
-        self.assertGreaterEqual(plan.estimated_time, 10.0)
 
     def test_plan_schedules_resume(self):
         """Test that Resume is scheduled when resume document exists and projects/experience are missing."""

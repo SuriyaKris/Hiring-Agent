@@ -13,8 +13,6 @@ def get_available_providers(profile: CandidateProfile) -> Set[str]:
     available = set()
     raw_data = profile.metadata.raw_data or {}
     
-    if profile.basic_info.linkedin_url:
-        available.add("Playwright")
     if raw_data.get("has_resume") or raw_data.get("resume_path"):
         available.add("Resume")
     if profile.basic_info.github_url:
@@ -46,44 +44,7 @@ class BaseEnrichmentRule(ABC):
         pass
 
 
-class PlaywrightRule(BaseEnrichmentRule):
-    """Rule 1: Run Playwright scraper if profile details are missing and LinkedIn URL exists."""
 
-    @property
-    def rule_name(self) -> str:
-        return "PlaywrightScraperRule"
-
-    async def evaluate(self, profile: CandidateProfile, missing_fields: Set[str], reliability_metrics: Dict[str, Dict[str, float]]) -> Optional[str]:
-        targets = {"Summary", "Skills", "Experience", "Experience Description", "Education", "Certifications"}
-        missing_targets = targets.intersection(missing_fields)
-        if not missing_targets or not profile.basic_info.linkedin_url:
-            return None
-
-        # Compare confidence levels across all other available providers to optimize routing
-        available = get_available_providers(profile)
-        playwright_rel = reliability_metrics.get("Playwright", {})
-
-        valid_targets = []
-        for field in missing_targets:
-            playwright_conf = playwright_rel.get(field, 1.0)
-            
-            # Check if any other available provider can fulfill this field with higher accuracy
-            has_better_alternative = False
-            for other in available:
-                if other == "Playwright":
-                    continue
-                other_conf = reliability_metrics.get(other, {}).get(field, 0.0)
-                if other_conf > playwright_conf:
-                    has_better_alternative = True
-                    break
-            
-            if has_better_alternative:
-                continue
-            valid_targets.append(field)
-
-        if valid_targets:
-            return "Playwright"
-        return None
 
 
 class ResumeRule(BaseEnrichmentRule):
@@ -177,13 +138,6 @@ class CompanyRule(BaseEnrichmentRule):
 
 # Default reliability mapping matching validation accuracies
 DEFAULT_RELIABILITY_METRICS = {
-    "Playwright": {
-        "Summary": 0.95,
-        "Experience": 0.91,
-        "Skills": 0.45,  # Low reliability (< 50%)
-        "Education": 0.88,
-        "Certifications": 0.85
-    },
     "Resume": {
         "Experience": 0.95,
         "Skills": 0.90,
@@ -212,7 +166,6 @@ class EnrichmentPlanner:
         reliability_metrics: Optional[Dict[str, Dict[str, float]]] = None
     ):
         self.rules = rules or [
-            PlaywrightRule(),
             ResumeRule(),
             GitHubRule(),
             CompanyRule(),

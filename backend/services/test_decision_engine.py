@@ -13,7 +13,6 @@ sys.path.insert(0, BACKEND_DIR)
 from schemas.candidate_profile import CandidateProfile, BasicInfo, SchemaMetadata
 from services.enrichment_decision_engine import EnrichmentDecisionEngine
 from providers.apollo_provider import ApolloProvider
-from providers.browser_automation_provider import BrowserAutomationProvider
 from providers.resume_provider import ResumeProvider
 from providers.github_provider import GitHubProvider
 
@@ -23,7 +22,6 @@ class TestDecisionEngine(unittest.TestCase):
         self.engine = EnrichmentDecisionEngine()
         self.providers = [
             ApolloProvider(),
-            BrowserAutomationProvider(),
             ResumeProvider(),
             GitHubProvider(),
         ]
@@ -42,49 +40,16 @@ class TestDecisionEngine(unittest.TestCase):
         self.assertIn("Skills", decision.missing_fields)
         self.assertIn("Projects", decision.missing_fields)
 
-        # 2. Apollo is eligible (can_enrich is True, has missing fields, priority 1).
         # GitHub is not eligible (github_url missing).
-        # Playwright is not eligible (linkedin_url missing).
         # Resume is not eligible (has_resume is false/missing).
         self.assertIn("Apollo", decision.eligible_providers)
         self.assertNotIn("GitHub", decision.eligible_providers)
-        self.assertNotIn("Playwright", decision.eligible_providers)
 
         # 3. Apollo should be the first provider to run
         self.assertEqual(decision.provider_to_run, "Apollo")
         self.assertFalse(decision.should_stop)
 
-    def test_decision_after_apollo_sourcing(self):
-        """Test decision after Apollo has sourced basic details (email, linkedin_url, location)."""
-        profile = CandidateProfile(
-            basic_info=BasicInfo(
-                full_name="Sarah Johnson",
-                email="sarah@salesforce.com",
-                linkedin_url="https://linkedin.com/in/sarah-j",
-                location="Austin, TX",
-            ),
-            metadata=SchemaMetadata(
-                source="apollo",
-                raw_data={"executed_providers": ["Apollo"]},
-            ),
-        )
 
-        decision = asyncio.run(self.engine.decide_enrichment(profile, self.providers))
-
-        # 1. Apollo should be skipped/already run
-        self.assertNotIn("Apollo", decision.eligible_providers)
-        self.assertIn("Apollo", decision.providers_to_skip)
-
-        # 2. Playwright should now be eligible (linkedin_url is present, priority 2)
-        self.assertIn("Playwright", decision.eligible_providers)
-
-        # 3. Resume and GitHub should be skipped (lack resume document and github_url respectively)
-        self.assertNotIn("Resume", decision.eligible_providers)
-        self.assertNotIn("GitHub", decision.eligible_providers)
-
-        # 4. Playwright should run first
-        self.assertEqual(decision.provider_to_run, "Playwright")
-        self.assertFalse(decision.should_stop)
 
     def test_prerequisite_activation(self):
         """Test that GitHub provider activates when github_url is present."""
@@ -108,7 +73,7 @@ class TestDecisionEngine(unittest.TestCase):
             basic_info=BasicInfo(full_name="Sarah Johnson"),
             metadata=SchemaMetadata(
                 source="test",
-                raw_data={"executed_providers": ["Apollo", "Playwright", "Resume", "GitHub"]},
+                raw_data={"executed_providers": ["Apollo", "Resume", "GitHub"]},
             ),
         )
 
