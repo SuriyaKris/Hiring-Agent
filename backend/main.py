@@ -65,3 +65,12 @@ async def health():
         "llm_provider": settings.llm_provider,
         "data_source": "apollo",
     }
+
+
+@app.get("/api/status")
+async def get_status():
+    return {
+        "using_mock_data": not bool(settings.apollo_api_key),
+        "llm_provider": settings.llm_provider,
+        "fast_model": settings.fast_model,
+    }

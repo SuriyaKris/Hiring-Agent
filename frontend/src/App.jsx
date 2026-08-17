@@ -7,6 +7,12 @@ import Outreach from './pages/Outreach'
 import Dashboard from './pages/Dashboard'
 import Auth from './pages/Auth'
 
+// Configure Axios defaults for API routing & credentials transfer
+if (import.meta.env.VITE_API_URL) {
+  axios.defaults.baseURL = import.meta.env.VITE_API_URL
+}
+axios.defaults.withCredentials = true
+
 export default function App() {
   const [token, setToken] = useState(localStorage.getItem('token'))
   const [user, setUser] = useState(null)
@@ -42,12 +48,14 @@ export default function App() {
   }
 
   const handleLogout = () => {
-    localStorage.removeItem('token')
-    localStorage.removeItem('user')
-    delete axios.defaults.headers.common['Authorization']
-    setToken(null)
-    setUser(null)
-    setTab('dashboard')
+    axios.post('/api/auth/logout').finally(() => {
+      localStorage.removeItem('token')
+      localStorage.removeItem('user')
+      delete axios.defaults.headers.common['Authorization']
+      setToken(null)
+      setUser(null)
+      setTab('dashboard')
+    })
   }
 
   const goToOutreach = (candidate) => {

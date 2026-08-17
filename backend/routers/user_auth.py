@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Response
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 import bcrypt
@@ -19,7 +19,7 @@ JWT_SECRET = "4cecloud_hiring_agent_v2_jwt_auth_secret_key_prod_development"
 JWT_ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_HOURS = 24
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
 
 # Pydantic schemas for request / response validation
 class UserSignupRequest(BaseModel):
@@ -73,7 +73,8 @@ def create_access_token(user_id: uuid.UUID) -> str:
 
 # Dependency to fetch the active logged-in user
 async def get_current_user(
-    token: str = Depends(oauth2_scheme),
+    request: Request,
+    token: Optional[str] = Depends(oauth2_scheme),
     db: AsyncSession = Depends(get_db)
 ) -> UserRecord:
     credentials_exception = HTTPException(
@@ -81,8 +82,11 @@ async def get_current_user(
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
+    actual_token = request.cookies.get("access_token") or token
+    if not actual_token:
+        raise credentials_exception
     try:
-        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        payload = jwt.decode(actual_token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
         user_id_str: str = payload.get("sub")
         if user_id_str is None:
             raise credentials_exception
@@ -102,6 +106,7 @@ async def get_current_user(
 @router.post("/auth/signup", response_model=TokenResponseSchema)
 async def signup(
     req: UserSignupRequest,
+    response: Response,
     db: AsyncSession = Depends(get_db)
 ):
     # Check if email is already taken
@@ -126,6 +131,14 @@ async def signup(
 
     # Generate token
     token = create_access_token(new_user.id)
+    response.set_cookie(
+        key="access_token",
+        value=token,
+        httponly=True,
+        samesite="lax",
+        secure=False,
+        max_age=24 * 3600
+    )
     return {
         "access_token": token,
         "token_type": "bearer",
@@ -137,6 +150,7 @@ async def signup(
 @router.post("/auth/login", response_model=TokenResponseSchema)
 async def login(
     req: UserLoginRequest,
+    response: Response,
     db: AsyncSession = Depends(get_db)
 ):
     stmt = select(UserRecord).where(UserRecord.email == req.email.lower())
@@ -152,11 +166,25 @@ async def login(
 
     # Generate token
     token = create_access_token(user.id)
+    response.set_cookie(
+        key="access_token",
+        value=token,
+        httponly=True,
+        samesite="lax",
+        secure=False,
+        max_age=24 * 3600
+    )
     return {
         "access_token": token,
         "token_type": "bearer",
         "user": user
     }
+
+
+@router.post("/auth/logout")
+async def logout(response: Response):
+    response.delete_cookie("access_token")
+    return {"detail": "Logged out successfully"}
 
 
 # Profile Info Route
