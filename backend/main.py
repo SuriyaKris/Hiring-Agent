@@ -24,6 +24,8 @@ async def lifespan(app: FastAPI):
     logger.info(f"Starting AI Hiring Agent v2")
     logger.info(f"LLM provider: {settings.llm_provider} | model: {settings.fast_model}")
     logger.info(f"Data source: Apollo.io")
+    db_type = "PostgreSQL" if settings.database_url.startswith("postgresql") else "SQLite"
+    logger.info(f"Database engine: {db_type}")
     await init_db()
     logger.info("Database ready.")
     yield

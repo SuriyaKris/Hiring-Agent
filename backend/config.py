@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     frontend_url: str = "http://localhost:5173"
 
     # Database
-    database_url: str = "sqlite+aiosqlite:///./hiring_agent.db"
+    database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/hiring_agent"
 
     # LangSmith (optional)
     langchain_tracing_v2: bool = False

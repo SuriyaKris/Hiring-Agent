@@ -8,16 +8,25 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy import String, Float, Boolean, Text, DateTime, Integer, ForeignKey, Uuid
 from pgvector.sqlalchemy import Vector
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from config import get_settings
 
 settings = get_settings()
 
+connect_args = {}
+kwargs = {}
+if settings.database_url.startswith("postgresql"):
+    kwargs.update({
+        "pool_size": 20,
+        "max_overflow": 10,
+        "pool_pre_ping": True,
+    })
+
 engine = create_async_engine(
     settings.database_url,
     echo=False,
-    # aiosqlite does NOT use check_same_thread — omit to avoid errors
+    **kwargs
 )
 AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False)
 
@@ -33,7 +42,7 @@ class UserRecord(Base):
     email: Mapped[str] = mapped_column(String(200), unique=True, index=True)
     hashed_password: Mapped[str] = mapped_column(String(200))
     full_name: Mapped[str] = mapped_column(String(200), default="")
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
 class CandidateRecord(Base):
@@ -66,8 +75,8 @@ class CandidateRecord(Base):
     source_confidence: Mapped[float] = mapped_column(Float, default=1.0)
     search_session_id: Mapped[Optional[str]] = mapped_column(String(100), default=None, index=True)
     
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
 class OutreachRecord(Base):
@@ -79,11 +88,11 @@ class OutreachRecord(Base):
     role_name: Mapped[str] = mapped_column(String(200))
     channel: Mapped[str] = mapped_column(String(50))
     message_sent: Mapped[str] = mapped_column(Text)
-    sent_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     replied: Mapped[bool] = mapped_column(Boolean, default=False)
     status: Mapped[str] = mapped_column(String(50), default="pending")
     recruiter_notes: Mapped[str] = mapped_column(Text, default="")
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
 class SearchSessionRecord(Base):
@@ -97,7 +106,7 @@ class SearchSessionRecord(Base):
     apollo_filters_json: Mapped[str] = mapped_column(Text, default="{}")
     status: Mapped[str] = mapped_column(String(50), default="running")
     audit_trail_json: Mapped[str] = mapped_column(Text, default="[]")
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     
     user_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
     role_track_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid, nullable=True, index=True)
