@@ -23,7 +23,7 @@ async def apollo_search_candidates(request: ApolloSearchRequest, db: AsyncSessio
         # Evaluate fitment scores
         scored = await score_candidates_batch(profiles, request.spec, concurrency=3)
 
-        # Persist results in SQLite database
+        # Persist results in PostgreSQL database
         for c in scored:
             existing = await db.execute(
                 select(CandidateRecord).where(CandidateRecord.linkedin_url == c.profile.basic_info.linkedin_url)
