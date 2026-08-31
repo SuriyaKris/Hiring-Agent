@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 from dotenv import load_dotenv
 
-load_dotenv(override=True)
+load_dotenv(override=False)
 
 from config import get_settings
 from db import init_db

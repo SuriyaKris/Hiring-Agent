@@ -161,13 +161,20 @@ async def score_candidates_batch(
     Concurrency=3 avoids rate-limiting on Groq free tier.
     Increase to 5-8 for OpenAI paid tier.
     """
+    from config import get_settings
+    settings = get_settings()
+    if settings.llm_provider == "groq":
+        concurrency = 1
+
     semaphore = asyncio.Semaphore(concurrency)
 
-    async def score_with_limit(profile: CandidateProfile) -> ScoredCandidate:
+    async def score_with_limit(profile: CandidateProfile, index: int) -> ScoredCandidate:
         async with semaphore:
+            if index > 0 and settings.llm_provider == "groq":
+                await asyncio.sleep(2)  # Space out requests to avoid Groq rate limit
             return await score_candidate(profile, spec)
 
-    tasks = [score_with_limit(p) for p in profiles]
+    tasks = [score_with_limit(p, idx) for idx, p in enumerate(profiles)]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
     scored = []

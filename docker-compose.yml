@@ -14,6 +14,29 @@ services:
       - postgres_data:/var/lib/postgresql/data
     restart: always
 
+  backend:
+    build: ./backend
+    container_name: hiring-agent-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/hiring_agent
+    env_file:
+      - .env
+    command: sh -c "alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port 8000"
+    depends_on:
+      - db
+    restart: always
+
+  frontend:
+    build: ./frontend
+    container_name: hiring-agent-frontend
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+    restart: always
+
   pgadmin:
     image: dpage/pgadmin4
     container_name: hiring-agent-pgadmin
