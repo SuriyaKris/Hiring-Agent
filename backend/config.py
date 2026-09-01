@@ -20,6 +20,11 @@ class Settings(BaseSettings):
     openai_fast_model: str = "gpt-4o-mini"
     openai_smart_model: str = "gpt-4o"
 
+    # Gemini — Google AI Studio (free & high rate limit)
+    gemini_api_key: str = ""
+    gemini_fast_model: str = "gemini-2.5-flash"
+    gemini_smart_model: str = "gemini-2.5-flash"
+
     # Data sources
     apollo_api_key: str = ""            # blank = use mock data
     apollo_client_id: str = ""
@@ -52,6 +57,8 @@ class Settings(BaseSettings):
         """Return the fast model name for the active provider."""
         if self.llm_provider == "openai":
             return self.openai_fast_model
+        elif self.llm_provider == "gemini":
+            return self.gemini_fast_model
         return self.groq_fast_model
 
     @property
@@ -59,6 +66,8 @@ class Settings(BaseSettings):
         """Return the smart model name for the active provider."""
         if self.llm_provider == "openai":
             return self.openai_smart_model
+        elif self.llm_provider == "gemini":
+            return self.gemini_smart_model
         return self.groq_smart_model
 
 

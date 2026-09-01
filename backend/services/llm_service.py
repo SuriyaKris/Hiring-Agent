@@ -37,6 +37,20 @@ def _openai_client():
     return AsyncOpenAI(api_key=settings.openai_api_key)
 
 
+def _gemini_client():
+    from openai import AsyncOpenAI
+    if not settings.gemini_api_key:
+        raise ValueError(
+            "GEMINI_API_KEY is not set.\n"
+            "  Get a free key at https://aistudio.google.com\n"
+            "  Then add GEMINI_API_KEY=your_key to your .env file"
+        )
+    return AsyncOpenAI(
+        api_key=settings.gemini_api_key,
+        base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
+    )
+
+
 def _clean_json(text: str) -> str:
     """Strip markdown code fences that some models add despite instructions."""
     text = text.strip()
@@ -66,8 +80,8 @@ async def complete_json(
     json_instruction = "\n\nIMPORTANT: Return ONLY valid JSON. No explanation, no markdown, no code fences."
     full_system = system_prompt + json_instruction
 
-    if provider == "openai":
-        client   = _openai_client()
+    if provider in ("openai", "gemini"):
+        client   = _openai_client() if provider == "openai" else _gemini_client()
         response = await client.chat.completions.create(
             model=model,
             messages=[
@@ -76,7 +90,7 @@ async def complete_json(
             ],
             temperature=temperature,
             max_tokens=max_tokens,
-            response_format={"type": "json_object"},  # OpenAI enforces JSON
+            response_format={"type": "json_object"},  # Enforce JSON
         )
         raw = response.choices[0].message.content
 
@@ -109,7 +123,7 @@ async def complete_json(
         raw = response.choices[0].message.content
 
     else:
-        raise ValueError(f"Unknown LLM_PROVIDER: {provider!r}. Set to 'groq' or 'openai' in .env")
+        raise ValueError(f"Unknown LLM_PROVIDER: {provider!r}. Set to 'groq', 'openai', or 'gemini' in .env")
 
     cleaned = _clean_json(raw)
     try:
@@ -139,6 +153,8 @@ async def complete_text(
 
     if provider == "openai":
         response = await _openai_client().chat.completions.create(**kwargs)
+    elif provider == "gemini":
+        response = await _gemini_client().chat.completions.create(**kwargs)
     elif provider == "groq":
         response = await _groq_client().chat.completions.create(**kwargs)
     else:

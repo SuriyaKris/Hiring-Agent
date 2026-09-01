@@ -172,6 +172,11 @@ def main():
         write_env_key("GROQ_API_KEY", args[1])
         print(f"  Groq API key saved to {ENV_PATH}")
 
+    elif cmd == "set-gemini" and len(args) > 1:
+        write_env_key("GEMINI_API_KEY", args[1])
+        write_env_key("LLM_PROVIDER", "gemini")
+        print(f"  Gemini API key saved and LLM_PROVIDER set to 'gemini' in {ENV_PATH}")
+
     elif cmd == "set-openai" and len(args) > 1:
         write_env_key("OPENAI_API_KEY", args[1])
         print(f"  OpenAI API key saved to {ENV_PATH}")
