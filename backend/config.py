@@ -2,12 +2,28 @@
 Config — reads .env and exposes typed settings.
 LLM_PROVIDER switches between free (Groq) and paid (OpenAI).
 """
-from pydantic_settings import BaseSettings
 from pydantic import field_validator
+from pydantic_settings import BaseSettings
 from functools import lru_cache
 
 
 class Settings(BaseSettings):
+
+    database_url: str = (
+        "postgresql+asyncpg://postgres:postgres@localhost:5432/hiring_agent"
+    )
+
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def convert_database_url(cls, v):
+        if isinstance(v, str) and v.startswith("postgresql://"):
+            return v.replace(
+                "postgresql://",
+                "postgresql+asyncpg://",
+                1
+            )
+        return v
+
     # LLM provider switch
     llm_provider: str = "groq"          # "groq" (free POC) | "openai" (production)
 
@@ -47,18 +63,7 @@ class Settings(BaseSettings):
 
     # Database
     # Database
-database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/hiring_agent"
 
-@field_validator("database_url", mode="before")
-@classmethod
-def convert_database_url(cls, v):
-    if isinstance(v, str) and v.startswith("postgresql://"):
-        return v.replace(
-            "postgresql://",
-            "postgresql+asyncpg://",
-            1
-        )
-    return v
 
     # LangSmith (optional)
     langchain_tracing_v2: bool = False
