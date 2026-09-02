@@ -39,6 +39,10 @@ export default function Outreach({ candidate }) {
     } catch {}
   }
 
+  // General template interpolation logic
+  const generalSubject = `Exciting Career Opportunity: ${roleName} role at ${companyName}`
+  const generalEmailBody = `Hi ${manualName || 'there'},\n\nI hope this email finds you well.\n\nI’m ${recruiterName}, a recruiter at ${companyName}. I came across your profile and was very impressed by your background in driving revenue and scaling operations within the technology sector.\n\nWe are currently expanding our team and looking for a driven professional to fill our ${roleName} role. Your track record suggests you could be a fantastic fit for our aggressive growth strategy over the next 12 months.\n\nWould you be open to a brief introductory call next week to discuss this opportunity further?\n\nBest regards,\n\n${recruiterName}\n${companyName}`
+
   const handleMarkSent = async () => {
     const name = manualName || 'Manual Candidate'
     const linkedinUrl = profile?.basic_info?.linkedin_url || profile?.linkedin_url || ''
@@ -64,9 +68,15 @@ export default function Outreach({ candidate }) {
     toast.success('Email content copied to clipboard!')
   }
 
-  // General template interpolation logic
-  const generalSubject = `Exciting Career Opportunity: ${roleName} role at ${companyName}`
-  const generalEmailBody = `Hi ${manualName || 'there'},\n\nI hope this email finds you well.\n\nI’m ${recruiterName}, a recruiter at ${companyName}. I came across your profile and was very impressed by your background in driving revenue and scaling operations within the technology sector.\n\nWe are currently expanding our team and looking for a driven professional to fill our ${roleName} role. Your track record suggests you could be a fantastic fit for our aggressive growth strategy over the next 12 months.\n\nWould you be open to a brief introductory call next week to discuss this opportunity further?\n\nBest regards,\n\n${recruiterName}\n${companyName}`
+  const handleOpenInGmail = async () => {
+    if (!manualEmail) {
+      toast.error('Please specify a candidate email address first.')
+      return
+    }
+    const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(manualEmail)}&su=${encodeURIComponent(generalSubject)}&body=${encodeURIComponent(generalEmailBody)}`
+    window.open(gmailUrl, '_blank')
+    await handleMarkSent()
+  }
 
   return (
     <div className="space-y-6 select-none animate-fade-in-up">
@@ -221,7 +231,7 @@ export default function Outreach({ candidate }) {
             </div>
 
             {/* Bottom Actions */}
-            <div className="flex justify-end gap-3 pt-5 border-t border-slate-150 mt-6">
+            <div className="flex justify-end items-center gap-3 pt-5 border-t border-slate-150 mt-6">
               <button 
                 onClick={() => toast.success('Draft saved successfully!')} 
                 className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl px-5 py-2.5 text-xs font-bold shadow-sm transition-all outline-none"
@@ -230,9 +240,15 @@ export default function Outreach({ candidate }) {
               </button>
               <button 
                 onClick={handleMarkSent} 
-                className="bg-[#0B57D0] hover:bg-[#0842a0] text-white rounded-xl px-5 py-2.5 text-xs font-bold shadow-md hover:shadow-lg transition-all flex items-center gap-1.5 outline-none"
+                className="bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl px-5 py-2.5 text-xs font-bold shadow-sm transition-all flex items-center gap-1.5 outline-none border border-slate-200"
               >
                 ✓ Mark Sent
+              </button>
+              <button 
+                onClick={handleOpenInGmail} 
+                className="bg-[#0B57D0] hover:bg-[#0842a0] text-white rounded-xl px-5 py-2.5 text-xs font-bold shadow-md hover:shadow-lg transition-all flex items-center gap-1.5 outline-none"
+              >
+                ✉️ Open in Gmail
               </button>
             </div>
           </div>
