@@ -114,6 +114,7 @@ async def run_full_pipeline(
                 existing_row.is_open_to_work = is_open
                 existing_row.raw_json = json.dumps(c.profile.model_dump(mode="json"))
                 existing_row.role_name = request.role_name
+                existing_row.search_session_id = result.run_id
             else:
                 # Add new candidate record
                 db.add(CandidateRecord(

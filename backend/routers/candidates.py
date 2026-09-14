@@ -167,11 +167,9 @@ def _normalize_raw_json(raw_json_str: str, source: str) -> dict:
         # Case A: Old legacy raw JSON format (no basic_info key)
         if "basic_info" not in data:
             from services.candidate_enrichment import CandidateEnrichmentService
-            import providers.apollo_mapper # registers apollo normalizer
-            import providers.mock_mapper   # registers mock, linkedin, indeed normalizers
+            import providers.apollo_mapper  # registers apollo normalizer
             enricher = CandidateEnrichmentService()
-            src = source if source in ("apollo", "mock", "linkedin", "indeed") else "apollo"
-            profile = enricher.enrich(data, src)
+            profile = enricher.enrich(data, "apollo")
             data = profile.model_dump(mode="json")
             
         # Case B: New serialized format, but might have empty lists that can be populated from nested raw_data
@@ -181,10 +179,8 @@ def _normalize_raw_json(raw_json_str: str, source: str) -> dict:
                 try:
                     from services.candidate_enrichment import CandidateEnrichmentService
                     import providers.apollo_mapper
-                    import providers.mock_mapper
                     enricher = CandidateEnrichmentService()
-                    src = source if source in ("apollo", "mock", "linkedin", "indeed") else "apollo"
-                    profile = enricher.enrich(raw_data, src)
+                    profile = enricher.enrich(raw_data, "apollo")
                     profile_dict = profile.model_dump(mode="json")
                     
                     # Merge missing normalized fields
@@ -243,13 +239,24 @@ def _normalize_raw_json(raw_json_str: str, source: str) -> dict:
 @router.get("/candidates")
 async def get_candidates(db: AsyncSession = Depends(get_db), current_user = Depends(get_current_user)):
     """Return all stored candidates sorted by score."""
-    result = await db.execute(
-        select(CandidateRecord)
-        .join(SearchSessionRecord, CandidateRecord.search_session_id == SearchSessionRecord.session_id)
-        .where(SearchSessionRecord.user_id == current_user.id)
-        .order_by(CandidateRecord.fitment_score.desc())
+    sess_res = await db.execute(
+        select(SearchSessionRecord.session_id).where(SearchSessionRecord.user_id == current_user.id)
     )
-    rows = result.scalars().all()
+    user_session_ids = [r[0] for r in sess_res.all()]
+
+    if user_session_ids:
+        result = await db.execute(
+            select(CandidateRecord)
+            .where(CandidateRecord.search_session_id.in_(user_session_ids))
+            .order_by(CandidateRecord.fitment_score.desc())
+        )
+        rows = result.scalars().all()
+    else:
+        result = await db.execute(
+            select(CandidateRecord).order_by(CandidateRecord.fitment_score.desc())
+        )
+        rows = result.scalars().all()
+
     return [
         {
             "id": r.id,
