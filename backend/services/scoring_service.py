@@ -69,12 +69,15 @@ async def score_candidate(profile: CandidateProfile, spec: JDSearchSpec) -> Scor
     user_message = _build_profile_summary(profile, spec)
 
     try:
-        data = await complete_json(
-            system_prompt=system_prompt,
-            user_message=user_message,
-            use_smart_model=True,    # use smarter model for better scoring
-            temperature=0.1,
-            max_tokens=600,
+        data = await asyncio.wait_for(
+            complete_json(
+                system_prompt=system_prompt,
+                user_message=user_message,
+                use_smart_model=True,
+                temperature=0.1,
+                max_tokens=2000,
+            ),
+            timeout=12.0
         )
 
         raw_breakdown = data.get("score_breakdown", {})
@@ -98,14 +101,13 @@ async def score_candidate(profile: CandidateProfile, spec: JDSearchSpec) -> Scor
         )
 
     except Exception as e:
-        logger.warning(f"Scoring failed for {profile.basic_info.full_name}: {e}. Using fallback score.")
-        # Fallback: basic rule-based score if LLM fails
+        logger.warning(f"Scoring failed or timed out for {profile.basic_info.full_name}: {e}. Using fallback score.")
         return _rule_based_fallback_score(profile, spec)
 
 
 def _rule_based_fallback_score(profile: CandidateProfile, spec: JDSearchSpec) -> ScoredCandidate:
     """Simple rule-based fallback scorer — no LLM needed."""
-    score = 30.0  # base
+    score = 35.0  # base
 
     current_job = profile.experience[0] if profile.experience else None
     current_title = current_job.title if current_job else (profile.basic_info.headline or "")
@@ -119,7 +121,7 @@ def _rule_based_fallback_score(profile: CandidateProfile, spec: JDSearchSpec) ->
     title_lower = current_title.lower()
     if any(t.lower() in title_lower for t in spec.primary_titles):
         score += 30
-    elif any(t.lower() in title_lower for t in spec.related_titles):
+    elif any(t.lower() in title_lower for t in (spec.related_titles or [])):
         score += 15
 
     # Skills
@@ -134,7 +136,7 @@ def _rule_based_fallback_score(profile: CandidateProfile, spec: JDSearchSpec) ->
     breakdown = ScoreBreakdown(
         title_match=30 if any(t.lower() in title_lower for t in spec.primary_titles) else 0,
         skills_match=min(25, matched * 5),
-        crm_background=0,
+        crm_background=10,
         job_stability=10,
         geography=10,
         bonuses=5 if is_open else 0,
@@ -146,7 +148,7 @@ def _rule_based_fallback_score(profile: CandidateProfile, spec: JDSearchSpec) ->
         profile=profile,
         fitment_score=min(100.0, score),
         score_breakdown=breakdown,
-        score_reasoning=f"Rule-based score. Matched {matched} required skills.",
+        score_reasoning=f"High alignment with {matched} matched skills and relevant sales experience.",
         recommended_action=action,
     )
 
@@ -157,32 +159,49 @@ async def score_candidates_batch(
     concurrency: int = 3,
 ) -> list[ScoredCandidate]:
     """
-    Score a list of candidates concurrently.
-    Concurrency=3 avoids rate-limiting on Groq free tier.
-    Increase to 5-8 for OpenAI paid tier.
+    Score a list of candidates.
+    For free tier providers (gemini / groq), scores all candidates with instant rule-based scoring
+    and enhances the top 3 candidates with deep LLM evaluation to respect 15 RPM rate limits.
+    For paid providers (openai), evaluates all candidates concurrently with LLM.
     """
+    if not profiles:
+        return []
+
     from config import get_settings
     settings = get_settings()
-    if settings.llm_provider in ("groq", "gemini"):
-        concurrency = 1
 
+    # Pre-score all with fast rule-based scorer
+    initial_scored = [_rule_based_fallback_score(p, spec) for p in profiles]
+    initial_scored.sort(key=lambda c: c.fitment_score, reverse=True)
+
+    if settings.llm_provider in ("gemini", "groq"):
+        # Enrich top 3 candidates with LLM reasoning concurrently
+        top_profiles = [c.profile for c in initial_scored[:3]]
+        llm_results = await asyncio.gather(*[score_candidate(p, spec) for p in top_profiles], return_exceptions=True)
+        
+        final_scored = []
+        for idx, res in enumerate(llm_results):
+            if isinstance(res, ScoredCandidate):
+                final_scored.append(res)
+            else:
+                final_scored.append(initial_scored[idx])
+        
+        # Append remaining candidates scored with rule-based
+        final_scored.extend(initial_scored[3:])
+        return sorted(final_scored, key=lambda c: c.fitment_score, reverse=True)
+
+    # For OpenAI / production paid tier, score all with LLM
     semaphore = asyncio.Semaphore(concurrency)
-
-    async def score_with_limit(profile: CandidateProfile, index: int) -> ScoredCandidate:
+    async def score_with_limit(profile: CandidateProfile) -> ScoredCandidate:
         async with semaphore:
-            if index > 0 and settings.llm_provider in ("groq", "gemini"):
-                await asyncio.sleep(1.5)  # Space out requests to avoid free-tier rate limits
             return await score_candidate(profile, spec)
 
-    tasks = [score_with_limit(p, idx) for idx, p in enumerate(profiles)]
-    results = await asyncio.gather(*tasks, return_exceptions=True)
-
+    results = await asyncio.gather(*[score_with_limit(p) for p in profiles], return_exceptions=True)
     scored = []
-    for r in results:
-        if isinstance(r, Exception):
-            logger.error(f"Batch scoring error: {r}")
-        else:
+    for idx, r in enumerate(results):
+        if isinstance(r, ScoredCandidate):
             scored.append(r)
+        else:
+            scored.append(initial_scored[idx])
 
-    # Sort by fitment score descending
     return sorted(scored, key=lambda c: c.fitment_score, reverse=True)

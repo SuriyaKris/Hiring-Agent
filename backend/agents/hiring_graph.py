@@ -96,7 +96,7 @@ async def node_apollo_search(state: HiringState) -> HiringState:
         
         # Load compiled filters and extract max candidates limit
         target_count = state["max_candidates"]
-        overfetch_count = min(target_count * 3, 100)
+        overfetch_count = min(target_count + 5, 25)
         profiles = await searcher.search_profiles(spec, max_results=overfetch_count)
         logger.info(f"[Diversity] Requested {overfetch_count} candidates (target: {target_count}) for company diversification")
         
@@ -167,15 +167,23 @@ async def node_apollo_enrichment(state: HiringState) -> HiringState:
         return state
     logger.info(f"[{state['run_id']}] Node: apollo_enrichment")
     try:
+        import asyncio
         from schemas.candidate_profile import CandidateProfile as AppProfile
         profiles = [AppProfile(**p) for p in (state.get("raw_profiles") or [])]
         
         enricher = ApolloProvider()
-        enriched = []
-        for p in profiles:
-            if await enricher.can_enrich(p):
-                p = await enricher.enrich(p)
-            enriched.append(p)
+        sem = asyncio.Semaphore(5)
+
+        async def enrich_candidate(p: AppProfile) -> AppProfile:
+            async with sem:
+                try:
+                    if await enricher.can_enrich(p):
+                        return await enricher.enrich(p)
+                except Exception as ex:
+                    logger.warning(f"Enrichment failed for '{p.basic_info.full_name}': {ex}")
+                return p
+
+        enriched = await asyncio.gather(*[enrich_candidate(p) for p in profiles])
             
         state["raw_profiles"] = [p.model_dump() for p in enriched]
         state["audit_trail"].append("Enriched candidate contact profiles via Apollo Lookup")

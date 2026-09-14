@@ -179,31 +179,36 @@ async def get_excluded_identities(db, role_track_id) -> set[str]:
     Query all candidate records that belong to any search session in this role track.
     Returns a set of normalized values (email, linkedin_url, apollo_person_id) to exclude.
     """
-    import uuid
-    from sqlalchemy import select
-    from db import CandidateRecord, SearchSessionRecord
-    from identity.matching_engine import normalize_val
+    try:
+        import uuid
+        from sqlalchemy import select
+        from db import CandidateRecord, SearchSessionRecord
+        from identity.matching_engine import normalize_val
 
-    # Find all sessions in this track
-    session_stmt = select(SearchSessionRecord.session_id).where(SearchSessionRecord.role_track_id == role_track_id)
-    res = await db.execute(session_stmt)
-    session_ids = [r[0] for r in res.all()]
+        # Find all sessions in this track
+        session_stmt = select(SearchSessionRecord.session_id).where(SearchSessionRecord.role_track_id == role_track_id)
+        res = await db.execute(session_stmt)
+        session_ids = [r[0] for r in res.all()]
 
-    if not session_ids:
+        if not session_ids:
+            return set()
+
+        # Query all candidates in those sessions
+        cand_stmt = select(CandidateRecord).where(CandidateRecord.search_session_id.in_(session_ids))
+        res = await db.execute(cand_stmt)
+        candidates = res.scalars().all()
+
+        exclusions = set()
+        for c in candidates:
+            if c.apollo_person_id:
+                exclusions.add(normalize_val(c.apollo_person_id))
+            if c.linkedin_url:
+                exclusions.add(normalize_val(c.linkedin_url))
+            if c.email:
+                exclusions.add(normalize_val(c.email))
+
+        return exclusions
+    except Exception as e:
+        from loguru import logger
+        logger.warning(f"Failed to fetch excluded identities: {e}")
         return set()
-
-    # Query all candidates in those sessions
-    cand_stmt = select(CandidateRecord).where(CandidateRecord.search_session_id.in_(session_ids))
-    res = await db.execute(cand_stmt)
-    candidates = res.scalars().all()
-
-    exclusions = set()
-    for c in candidates:
-        if c.apollo_person_id:
-            exclusions.add(normalize_val(c.apollo_person_id))
-        if c.linkedin_url:
-            exclusions.add(normalize_val(c.linkedin_url))
-        if c.email:
-            exclusions.add(normalize_val(c.email))
-
-    return exclusions

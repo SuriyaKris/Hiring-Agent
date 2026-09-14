@@ -73,43 +73,50 @@ async def find_or_create_role_track(
     3. Generate new UUID if no match.
     """
     # 1. Exact match search
-    stmt = (
-        select(SearchSessionRecord.role_track_id)
-        .where(SearchSessionRecord.user_id == user_id)
-        .where(SearchSessionRecord.spec_fingerprint_hash == new_hash)
-        .where(SearchSessionRecord.role_track_id.isnot(None))
-        .limit(1)
-    )
-    res = await db.execute(stmt)
-    exact_match = res.scalar_one_or_none()
-    if exact_match:
+    try:
+        stmt = (
+            select(SearchSessionRecord.role_track_id)
+            .where(SearchSessionRecord.user_id == user_id)
+            .where(SearchSessionRecord.spec_fingerprint_hash == new_hash)
+            .where(SearchSessionRecord.role_track_id.isnot(None))
+            .limit(1)
+        )
+        res = await db.execute(stmt)
+        exact_match = res.scalar_one_or_none()
+        if exact_match:
+            from loguru import logger
+            logger.info(f"Role Track match: Exact fingerprint match found. Reusing role_track_id: {exact_match}")
+            return exact_match
+    except Exception as e:
         from loguru import logger
-        logger.info(f"Role Track match: Exact fingerprint match found. Reusing role_track_id: {exact_match}")
-        return exact_match
+        logger.warning(f"Role track exact match query failed: {e}")
 
     # 2. Vector similarity clustering (Cosine Distance <=> <= 0.10)
-    # Using SQL expression for pgvector distance query
-    stmt = (
-        select(
-            SearchSessionRecord.role_track_id,
-            SearchSessionRecord.spec_embedding.cosine_distance(new_vector).label("distance")
+    try:
+        stmt = (
+            select(
+                SearchSessionRecord.role_track_id,
+                SearchSessionRecord.spec_embedding.cosine_distance(new_vector).label("distance")
+            )
+            .where(SearchSessionRecord.user_id == user_id)
+            .where(SearchSessionRecord.role_track_id.isnot(None))
+            .where(SearchSessionRecord.spec_embedding.isnot(None))
+            .order_by(text("distance ASC"))
+            .limit(1)
         )
-        .where(SearchSessionRecord.user_id == user_id)
-        .where(SearchSessionRecord.role_track_id.isnot(None))
-        .where(SearchSessionRecord.spec_embedding.isnot(None))
-        .order_by(text("distance ASC"))
-        .limit(1)
-    )
-    res = await db.execute(stmt)
-    row = res.first()
-    
-    if row:
-        matched_track_id, distance = row
-        if distance is not None and distance <= COSINE_DISTANCE_THRESHOLD:
-            from loguru import logger
-            similarity = 1.0 - distance
-            logger.info(f"Role Track match: Semantic similarity cluster match found (Similarity: {similarity:.2f}). Reusing role_track_id: {matched_track_id}")
-            return matched_track_id
+        res = await db.execute(stmt)
+        row = res.first()
+        
+        if row:
+            matched_track_id, distance = row
+            if distance is not None and distance <= COSINE_DISTANCE_THRESHOLD:
+                from loguru import logger
+                similarity = 1.0 - distance
+                logger.info(f"Role Track match: Semantic similarity cluster match found (Similarity: {similarity:.2f}). Reusing role_track_id: {matched_track_id}")
+                return matched_track_id
+    except Exception as e:
+        from loguru import logger
+        logger.warning(f"Role track vector similarity query failed: {e}")
 
     # 3. Create a fresh role track
     new_track_id = uuid.uuid4()

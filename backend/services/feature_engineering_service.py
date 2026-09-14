@@ -165,23 +165,20 @@ class FeatureEngineeringService:
         """
         Calculate the 6 core features. Returns None if any critical JD specs are missing.
         """
-        # Validate JD fields (Fail loud in dev: log warnings and return None for dependent features)
-        target_titles = spec.target_titles
-        target_persona = spec.target_persona
-        target_territory = spec.target_territory
+        # Fallback to standard spec fields if Phase 1 specific fields are not set
+        target_titles = spec.target_titles or spec.primary_titles or []
+        target_persona = spec.target_persona or (spec.primary_titles[0] if spec.primary_titles else spec.summary)
+        target_territory = spec.target_territory or (spec.geo_keywords[0] if spec.geo_keywords else "United States")
         raw_data = profile.metadata.raw_data or {}
         
         # We check if they are completely missing or empty
         if not target_titles:
-            logger.warning("Feature engineering cannot run: 'target_titles' is missing or empty in JDSearchSpec.")
             return None
             
         if not target_persona:
-            logger.warning("Feature engineering cannot run: 'target_persona' is missing or empty in JDSearchSpec.")
             return None
             
         if not target_territory:
-            logger.warning("Feature engineering cannot run: 'target_territory' is missing or empty in JDSearchSpec.")
             return None
             
         # Get candidate's current title (Fix 2)

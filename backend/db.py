@@ -115,8 +115,21 @@ class SearchSessionRecord(Base):
 
 
 async def init_db():
-    # Database tables are managed via Alembic migrations
-    pass
+    try:
+        async with engine.begin() as conn:
+            if settings.database_url.startswith("postgresql"):
+                try:
+                    from sqlalchemy import text
+                    await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
+                except Exception as e:
+                    from loguru import logger
+                    logger.warning(f"Could not enable pgvector extension: {e}")
+            await conn.run_sync(Base.metadata.create_all)
+        from loguru import logger
+        logger.info("Database schema initialized successfully.")
+    except Exception as e:
+        from loguru import logger
+        logger.warning(f"Database auto-initialization skipped or failed: {e}")
 
 
 async def get_db():
