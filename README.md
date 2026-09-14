@@ -155,3 +155,28 @@ hiring-agent-v2/
     ├── tech-stack.md         Full tools table with costs
     └── poc-to-production.md  Detailed upgrade guide
 ```
+
+---
+
+## Deploying to Netlify (Frontend) + Render (Backend)
+
+### 1. Render (FastAPI Backend)
+1. **Root Directory**: `backend` (or build command from repo root: `pip install -r backend/requirements.txt`)
+2. **Start Command**: `uvicorn main:app --host 0.0.0.0 --port $PORT`
+3. **Environment Variables**:
+   - `DATABASE_URL`: Your PostgreSQL connection string (e.g. Render Postgres)
+   - `FRONTEND_URL`: `https://<your-netlify-site>.netlify.app`
+   - `LLM_PROVIDER`: `gemini` (or `groq` / `openai`)
+   - `GEMINI_API_KEY`: Your Google AI Studio key
+   - `GEMINI_FAST_MODEL`: `gemini-3.6-flash`
+   - `GEMINI_SMART_MODEL`: `gemini-3.6-flash`
+   - `APOLLO_API_KEY`: Your Apollo.io API key (or blank for mock data)
+
+### 2. Netlify (React Frontend)
+1. **Base directory**: `frontend`
+2. **Build command**: `npm run build`
+3. **Publish directory**: `dist` (or `frontend/dist` if deploying from repo root)
+4. **Environment Variables**:
+   - `VITE_API_URL`: `https://<your-render-backend-url>.onrender.com` (no trailing slash)
+5. **SPA Redirects**: Included automatically in `frontend/public/_redirects` and `netlify.toml`.
+

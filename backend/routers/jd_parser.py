@@ -7,6 +7,15 @@ from services.jd_service import parse_jd, extract_text_from_bytes, build_boolean
 router = APIRouter()
 
 
+def format_error_detail(e: Exception) -> str:
+    err_str = str(e)
+    if "RateLimitError" in err_str or "429" in err_str:
+        return "AI rate limit reached. Please wait a moment and try again."
+    if "RetryError" in err_str:
+        return "Operation timed out after retries. Please try again."
+    return err_str
+
+
 @router.post("/parse-jd")
 async def parse_jd_text(request: JDParseRequest):
     try:
@@ -17,7 +26,7 @@ async def parse_jd_text(request: JDParseRequest):
             "data_source": "text",
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=format_error_detail(e))
 
 
 @router.post("/parse-jd-file")
@@ -32,4 +41,4 @@ async def parse_jd_file(file: UploadFile = File(...), role_name: str = Form(...)
             "search_strings": build_boolean_string(spec),
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=format_error_detail(e))

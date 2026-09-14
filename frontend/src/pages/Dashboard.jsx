@@ -17,8 +17,10 @@ export default function Dashboard({ onNavigateToOutreach, onNavigateToPipeline }
       setLoading(true)
       const { data } = await axios.get('/api/me/roles')
       setRoles(data)
-    } catch {
-      toast.error('Failed to load roles dashboard.')
+    } catch (err) {
+      if (err.response?.status !== 401) {
+        toast.error(err.response?.data?.detail || 'Failed to load roles dashboard.')
+      }
     } finally {
       setLoading(false)
     }
@@ -38,8 +40,10 @@ export default function Dashboard({ onNavigateToOutreach, onNavigateToPipeline }
       const { data } = await axios.get(`/api/me/roles/${role.role_track_id}/sessions`)
       setSessions(data)
       setView('sessions')
-    } catch {
-      toast.error('Failed to load search history sessions.')
+    } catch (err) {
+      if (err.response?.status !== 401) {
+        toast.error(err.response?.data?.detail || 'Failed to load search history sessions.')
+      }
     } finally {
       setLoading(false)
     }

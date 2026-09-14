@@ -34,13 +34,37 @@ async def parse_jd(jd_text: str, role_name: str) -> JDSearchSpec:
     user_message = f"Role name: {role_name}\n\nJob Description:\n{jd_text}\n\nReturn the search specification JSON now."
 
     logger.info(f"Parsing JD for role: {role_name}")
-    data = await complete_json(
-        system_prompt=system_prompt,
-        user_message=user_message,
-        use_smart_model=False,   # fast/cheap model is sufficient
-        temperature=0.1,
-        max_tokens=1500,
-    )
+    try:
+        data = await complete_json(
+            system_prompt=system_prompt,
+            user_message=user_message,
+            use_smart_model=False,   # fast/cheap model is sufficient
+            temperature=0.1,
+            max_tokens=4000,
+        )
+    except Exception as e:
+        logger.warning(f"LLM parsing failed ({e}). Constructing heuristic search spec fallback.")
+        from nlp.keyword_extractor import extract_backup_titles, extract_backup_persona, extract_backup_territory
+        fallback_titles = extract_backup_titles(jd_text) or ([role_name.strip()] if role_name else ["Account Executive"])
+        fallback_persona = extract_backup_persona(jd_text)
+        fallback_territory = extract_backup_territory(jd_text)
+        data = {
+            "primary_titles": fallback_titles,
+            "related_titles": [f"Senior {t}" for t in fallback_titles[:2]] + [f"{t} Representative" for t in fallback_titles[:1]],
+            "required_skills": ["Sales", "CRM", "Business Development", "Lead Generation"],
+            "nice_to_have_skills": ["SaaS", "Salesforce", "Outreach", "HubSpot"],
+            "target_companies": ["Salesforce", "HubSpot", "ZoomInfo", "Gong"],
+            "excluded_companies": ["Staffing", "Recruiting Agency"],
+            "seniority_levels": ["Mid-Level", "Senior"],
+            "geo_keywords": [fallback_territory, "United States", "Remote US"],
+            "min_experience_years": 2,
+            "boolean_search_string": f'("{" OR ".join(fallback_titles[:3])}") AND ("{fallback_territory}")',
+            "summary": f"Targeting {role_name or 'sales professionals'} with relevant experience.",
+            "target_titles": fallback_titles,
+            "target_persona": fallback_persona,
+            "target_territory": fallback_territory,
+            "jd_requirements_text": jd_text,
+        }
     
     # Run fallbacks if the fields are missing/empty in LLM response
     from nlp.keyword_extractor import extract_backup_titles, extract_backup_persona, extract_backup_territory

@@ -14,7 +14,7 @@ import json
 import os
 import httpx
 from loguru import logger
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_not_exception_type
 from models.schemas import JDSearchSpec, LegacyCandidateProfile
 from config import get_settings
 
@@ -110,17 +110,129 @@ def _get_search_keyword(skills: list[str]) -> str:
     return tech_skills[0] if tech_skills else (skills[0] if skills else "")
 
 
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
+def _get_mock_candidates(max_results: int = 25) -> list[LegacyCandidateProfile]:
+    """Return realistic mock US sales candidate profiles for POC/Demo mode."""
+    mock_data = [
+        {
+            "id": "mock-1",
+            "first_name": "Sarah",
+            "last_name": "Johnson",
+            "name": "Sarah Johnson",
+            "headline": "Senior Inside Sales AE | Salesforce | CRM Expert",
+            "title": "Senior Inside Sales Account Executive",
+            "organization_name": "Salesforce",
+            "city": "Austin",
+            "state": "TX",
+            "country": "United States",
+            "skills": [{"name": "Inside Sales"}, {"name": "Salesforce CRM"}, {"name": "SaaS"}, {"name": "Outbound"}],
+            "is_likely_to_engage": True,
+            "email": "sarah.j@sample.com",
+            "linkedin_url": "https://linkedin.com/in/sarah-johnson-salesforce",
+            "employment_history": [{"title": "Senior Inside Sales Account Executive", "organization_name": "Salesforce", "start_date": "2020-01"}]
+        },
+        {
+            "id": "mock-2",
+            "first_name": "Priya",
+            "last_name": "Sharma",
+            "name": "Priya Sharma",
+            "headline": "US Sales Executive | Salesforce CRM | Chicago Remote",
+            "title": "US Sales Executive",
+            "organization_name": "ZoomInfo",
+            "city": "Chicago",
+            "state": "IL",
+            "country": "United States",
+            "skills": [{"name": "Sales Executive"}, {"name": "CRM"}, {"name": "B2B Sales"}, {"name": "Pipeline"}],
+            "is_likely_to_engage": True,
+            "email": "priya.s@sample.com",
+            "linkedin_url": "https://linkedin.com/in/priya-sharma-salesexec",
+            "employment_history": [{"title": "US Sales Executive", "organization_name": "ZoomInfo", "start_date": "2019-03"}]
+        },
+        {
+            "id": "mock-3",
+            "first_name": "James",
+            "last_name": "Chen",
+            "name": "James Chen",
+            "headline": "Business Development Representative | HubSpot | Dallas TX",
+            "title": "Business Development Representative",
+            "organization_name": "HubSpot",
+            "city": "Dallas",
+            "state": "TX",
+            "country": "United States",
+            "skills": [{"name": "BDR"}, {"name": "Lead Generation"}, {"name": "SaaS"}, {"name": "Prospecting"}],
+            "is_likely_to_engage": False,
+            "email": "james.c@sample.com",
+            "linkedin_url": "https://linkedin.com/in/james-chen-bdr-hubspot",
+            "employment_history": [{"title": "Business Development Representative", "organization_name": "HubSpot", "start_date": "2021-06"}]
+        },
+        {
+            "id": "mock-4",
+            "first_name": "Ashley",
+            "last_name": "Williams",
+            "name": "Ashley Williams",
+            "headline": "Inside Sales Rep | Salesloft | CRM | Remote US",
+            "title": "Inside Sales Representative",
+            "organization_name": "Salesloft",
+            "city": "Atlanta",
+            "state": "GA",
+            "country": "United States",
+            "skills": [{"name": "Inside Sales"}, {"name": "Salesloft"}, {"name": "Outreach"}, {"name": "Cold Calling"}],
+            "is_likely_to_engage": True,
+            "email": "ashley.w@sample.com",
+            "linkedin_url": "https://linkedin.com/in/ashley-williams-salesloft",
+            "employment_history": [{"title": "Inside Sales Representative", "organization_name": "Salesloft", "start_date": "2022-01"}]
+        },
+        {
+            "id": "mock-5",
+            "first_name": "Marcus",
+            "last_name": "Vance",
+            "name": "Marcus Vance",
+            "headline": "Account Executive - Mid Market | Outreach.io | San Francisco",
+            "title": "Account Executive",
+            "organization_name": "Outreach.io",
+            "city": "San Francisco",
+            "state": "CA",
+            "country": "United States",
+            "skills": [{"name": "Account Executive"}, {"name": "Sales Strategy"}, {"name": "CRM"}, {"name": "Enterprise Sales"}],
+            "is_likely_to_engage": True,
+            "email": "marcus.v@sample.com",
+            "linkedin_url": "https://linkedin.com/in/marcus-vance-outreach",
+            "employment_history": [{"title": "Account Executive", "organization_name": "Outreach.io", "start_date": "2018-09"}]
+        }
+    ]
+    profiles = []
+    for item in mock_data[:max_results]:
+        profiles.append(LegacyCandidateProfile(
+            linkedin_url=item["linkedin_url"],
+            full_name=item["name"],
+            headline=item["headline"],
+            current_company=item["organization_name"],
+            current_title=item["title"],
+            location=f"{item['city']}, {item['state']}, {item['country']}",
+            years_experience=4.0,
+            skills=[s["name"] for s in item["skills"]],
+            is_open_to_work=item["is_likely_to_engage"],
+            email=item["email"],
+            phone=None,
+            source="mock",
+            raw_data=item,
+        ))
+    return profiles
+
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+    retry=retry_if_not_exception_type(ValueError)
+)
 async def apollo_search(spec: JDSearchSpec, max_results: int = 25) -> list[LegacyCandidateProfile]:
     """
     Search Apollo.io People API.
-    Only called when APOLLO_API_KEY is set.
-
-    Apollo endpoint: POST /v1/mixed_people/api_search
+    Returns mock candidates if APOLLO_API_KEY is not configured.
     """
     headers, is_prod = get_apollo_auth()
     if not is_prod:
-        raise ValueError("Apollo API configuration is missing. Please configure APOLLO_API_KEY in the .env file.")
+        logger.info("APOLLO_API_KEY not set — using realistic mock US candidates for POC mode")
+        return _get_mock_candidates(max_results)
 
     q_kw = _get_search_keyword(spec.required_skills)
     mapped_sen = _map_seniority_levels(spec.seniority_levels)
@@ -213,11 +325,9 @@ async def apollo_search(spec: JDSearchSpec, max_results: int = 25) -> list[Legac
 async def get_candidates(spec: JDSearchSpec, max_results: int = 25) -> tuple[list[LegacyCandidateProfile], str]:
     """
     Main entry point: returns candidates + data source label.
-    Requires Apollo credentials (production mode).
+    Supports both real Apollo search and realistic mock fallback.
     """
     headers, is_prod = get_apollo_auth()
-    if not is_prod:
-        raise ValueError("Apollo API configuration is missing. Please configure APOLLO_API_KEY in the .env file.")
-    
+    source_label = "apollo" if is_prod else "mock"
     profiles = await apollo_search(spec, max_results)
-    return profiles, "apollo"
+    return profiles, source_label

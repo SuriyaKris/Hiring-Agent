@@ -39,9 +39,21 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Parse allowed origins from settings and defaults
+raw_origins = [o.strip() for o in settings.frontend_url.split(",") if o.strip()]
+default_origins = [
+    "http://localhost:5173", "http://127.0.0.1:5173",
+    "http://localhost:3000", "http://127.0.0.1:3000",
+    "http://localhost:4173", "http://127.0.0.1:4173"
+]
+for default_origin in default_origins:
+    if default_origin not in raw_origins:
+        raw_origins.append(default_origin)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[settings.frontend_url, "http://localhost:5173", "http://localhost:3000"],
+    allow_origins=raw_origins,
+    allow_origin_regex=r"^https?://([a-zA-Z0-9_-]+\.)*(netlify\.app|onrender\.com|localhost)(:\d+)?$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

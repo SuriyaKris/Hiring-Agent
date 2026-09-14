@@ -16,6 +16,15 @@ router = APIRouter()
 settings = get_settings()
 
 
+def format_error_detail(e: Exception) -> str:
+    err_str = str(e)
+    if "RateLimitError" in err_str or "429" in err_str:
+        return "AI rate limit reached. Please wait a moment and try again."
+    if "RetryError" in err_str:
+        return "Operation timed out after retries. Please try again."
+    return err_str
+
+
 @router.post("/pipeline/parse", response_model=JDSearchSpec)
 async def parse_job_description_criteria(request: JDParseRequest, current_user = Depends(get_current_user)):
     """Parse a JD to extract target criteria and keywords before running the pipeline search."""
@@ -23,7 +32,7 @@ async def parse_job_description_criteria(request: JDParseRequest, current_user =
         spec = await parse_jd(request.text, request.role_name)
         return spec
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=format_error_detail(e))
 
 
 @router.post("/pipeline/run", response_model=PipelineResult)
@@ -134,7 +143,7 @@ async def run_full_pipeline(
     except Exception as e:
         from loguru import logger
         logger.exception("Pipeline execution failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=format_error_detail(e))
 
 
 @router.post("/pipeline/upload-jd")

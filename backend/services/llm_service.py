@@ -9,7 +9,7 @@ To switch provider: change LLM_PROVIDER in .env — no code changes needed.
 
 import json
 import re
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_not_exception_type
 from loguru import logger
 from config import get_settings
 
@@ -20,9 +20,8 @@ def _groq_client():
     from groq import AsyncGroq
     if not settings.groq_api_key:
         raise ValueError(
-            "GROQ_API_KEY is not set.\n"
-            "  Get a free key at https://console.groq.com\n"
-            "  Then run: python scripts/switch_provider.py set-groq YOUR_KEY"
+            "GROQ_API_KEY is not set in environment.\n"
+            "  Please set GROQ_API_KEY in your Render environment variables or .env file."
         )
     return AsyncGroq(api_key=settings.groq_api_key)
 
@@ -31,8 +30,8 @@ def _openai_client():
     from openai import AsyncOpenAI
     if not settings.openai_api_key:
         raise ValueError(
-            "OPENAI_API_KEY is not set.\n"
-            "  Run: python scripts/switch_provider.py set-openai YOUR_KEY"
+            "OPENAI_API_KEY is not set in environment.\n"
+            "  Please set OPENAI_API_KEY in your Render environment variables or .env file."
         )
     return AsyncOpenAI(api_key=settings.openai_api_key)
 
@@ -41,9 +40,9 @@ def _gemini_client():
     from openai import AsyncOpenAI
     if not settings.gemini_api_key:
         raise ValueError(
-            "GEMINI_API_KEY is not set.\n"
+            "GEMINI_API_KEY is not set in environment.\n"
             "  Get a free key at https://aistudio.google.com\n"
-            "  Then add GEMINI_API_KEY=your_key to your .env file"
+            "  Then set GEMINI_API_KEY in your Render environment variables or .env file."
         )
     return AsyncOpenAI(
         api_key=settings.gemini_api_key,
@@ -52,21 +51,36 @@ def _gemini_client():
 
 
 def _clean_json(text: str) -> str:
-    """Strip markdown code fences that some models add despite instructions."""
+    """Strip markdown code fences, trailing commas, and extract outermost JSON object."""
+    if not text:
+        return "{}"
     text = text.strip()
-    # Remove ```json ... ``` or ``` ... ```
+    # Remove markdown code fences
     text = re.sub(r"^```(?:json)?\s*", "", text)
     text = re.sub(r"\s*```$", "", text)
-    return text.strip()
+    text = text.strip()
+
+    # If surrounded by commentary, extract outermost { ... }
+    match = re.search(r"(\{.*\})", text, re.DOTALL)
+    if match:
+        text = match.group(1).strip()
+
+    # Remove trailing commas before closing braces/brackets
+    text = re.sub(r",\s*([\]}])", r"\1", text)
+    return text
 
 
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+    retry=retry_if_not_exception_type(ValueError)
+)
 async def complete_json(
     system_prompt: str,
     user_message: str,
     use_smart_model: bool = False,
     temperature: float = 0.1,
-    max_tokens: int = 2000,
+    max_tokens: int = 4000,
 ) -> dict:
     """
     Call the LLM and return parsed JSON dict.
@@ -133,7 +147,11 @@ async def complete_json(
         raise ValueError(f"LLM returned invalid JSON: {e}") from e
 
 
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+    retry=retry_if_not_exception_type(ValueError)
+)
 async def complete_text(
     system_prompt: str,
     user_message: str,

@@ -29,8 +29,8 @@ class Settings(BaseSettings):
 
     # Groq — free tier
     groq_api_key: str = ""
-    groq_fast_model: str = "llama-3.1-8b-instant"
-    groq_smart_model: str = "llama-3.3-70b-versatile"
+    groq_fast_model: str = "groq/compound-mini"
+    groq_smart_model: str = "groq/compound"
 
     # OpenAI — paid production
     openai_api_key: str = ""
@@ -39,8 +39,8 @@ class Settings(BaseSettings):
 
     # Gemini — Google AI Studio (free & high rate limit)
     gemini_api_key: str = ""
-    gemini_fast_model: str = "gemini-2.5-flash"
-    gemini_smart_model: str = "gemini-2.5-flash"
+    gemini_fast_model: str = "gemini-3.6-flash"
+    gemini_smart_model: str = "gemini-3.6-flash"
 
     # Data sources
     apollo_api_key: str = ""            # blank = use mock data

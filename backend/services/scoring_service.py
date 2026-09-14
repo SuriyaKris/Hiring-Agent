@@ -163,15 +163,15 @@ async def score_candidates_batch(
     """
     from config import get_settings
     settings = get_settings()
-    if settings.llm_provider == "groq":
+    if settings.llm_provider in ("groq", "gemini"):
         concurrency = 1
 
     semaphore = asyncio.Semaphore(concurrency)
 
     async def score_with_limit(profile: CandidateProfile, index: int) -> ScoredCandidate:
         async with semaphore:
-            if index > 0 and settings.llm_provider == "groq":
-                await asyncio.sleep(2)  # Space out requests to avoid Groq rate limit
+            if index > 0 and settings.llm_provider in ("groq", "gemini"):
+                await asyncio.sleep(1.5)  # Space out requests to avoid free-tier rate limits
             return await score_candidate(profile, spec)
 
     tasks = [score_with_limit(p, idx) for idx, p in enumerate(profiles)]
