@@ -45,6 +45,26 @@ REGION_MAP = {
     "united states": {
         "names": ["united states", "united states of america", "america", "remote us", "us remote"],
         "codes": ["us", "usa"]
+    },
+    "united kingdom": {
+        "names": ["united kingdom", "great britain", "england", "scotland", "wales", "london", "manchester", "birmingham"],
+        "codes": ["uk", "gb"]
+    },
+    "europe": {
+        "names": ["europe", "european union", "germany", "berlin", "munich", "france", "paris", "netherlands", "amsterdam", "ireland", "dublin", "spain", "madrid", "barcelona"],
+        "codes": ["eu", "de", "fr", "nl", "ie", "es"]
+    },
+    "india": {
+        "names": ["india", "bengaluru", "bangalore", "hyderabad", "mumbai", "delhi", "pune", "chennai", "noida", "gurgaon"],
+        "codes": ["in"]
+    },
+    "canada": {
+        "names": ["canada", "toronto", "vancouver", "montreal", "ottawa", "calgary"],
+        "codes": ["ca"]
+    },
+    "australia": {
+        "names": ["australia", "sydney", "melbourne", "brisbane", "perth"],
+        "codes": ["au"]
     }
 }
 

@@ -50,6 +50,24 @@ def _gemini_client():
     )
 
 
+def _resolve_model(provider: str, model: str) -> str:
+    """Normalize model names and strip provider prefixes if present."""
+    m = model.strip()
+    if provider == "groq":
+        if m.startswith("groq/"):
+            m = m[5:]
+        return m
+    elif provider == "gemini":
+        if m.startswith("gemini/"):
+            m = m[7:]
+        return m
+    elif provider == "openai":
+        if m.startswith("openai/"):
+            m = m[7:]
+        return m
+    return m
+
+
 def _clean_json(text: str) -> str:
     """Strip markdown code fences, trailing commas, and extract outermost JSON object."""
     if not text:
@@ -86,8 +104,9 @@ async def complete_json(
     Call the LLM and return parsed JSON dict.
     Handles markdown fence stripping for models that ignore json_object mode.
     """
-    model    = settings.smart_model if use_smart_model else settings.fast_model
-    provider = settings.llm_provider
+    raw_model = settings.smart_model if use_smart_model else settings.fast_model
+    provider  = settings.llm_provider
+    model     = _resolve_model(provider, raw_model)
     logger.debug(f"LLM call | provider={provider} model={model}")
 
     # Tell the model explicitly to return only JSON
@@ -160,8 +179,9 @@ async def complete_text(
     max_tokens: int = 1000,
 ) -> str:
     """Return plain text (non-JSON) LLM response."""
-    model    = settings.smart_model if use_smart_model else settings.fast_model
-    provider = settings.llm_provider
+    raw_model = settings.smart_model if use_smart_model else settings.fast_model
+    provider  = settings.llm_provider
+    model     = _resolve_model(provider, raw_model)
 
     messages = [
         {"role": "system", "content": system_prompt},

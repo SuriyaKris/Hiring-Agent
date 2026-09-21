@@ -84,13 +84,19 @@ def parse_date_to_year_fraction(date_str: Optional[str], default_now: bool = Fal
 def check_territory_match(candidate_location: str, target_territory: str) -> float:
     """
     Check if a candidate's location matches the target territory.
-    Supports substring checking, word token matching, and region alias mapping.
+    Supports substring checking, word token matching, region alias mapping, and remote/global matching.
     """
-    if not candidate_location or not target_territory:
+    if not target_territory or target_territory.strip().lower() in ("remote", "global", "worldwide", "anywhere", "any", "unspecified", "all"):
+        return 1.0
+
+    if not candidate_location:
         return 0.0
         
     cand_lower = candidate_location.lower()
     target_lower = target_territory.lower()
+    
+    if "remote" in cand_lower or "anywhere" in cand_lower:
+        return 1.0
     
     # Substring shortcut
     if target_lower in cand_lower or cand_lower in target_lower:

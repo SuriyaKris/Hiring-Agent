@@ -29,8 +29,8 @@ class Settings(BaseSettings):
 
     # Groq — free tier
     groq_api_key: str = ""
-    groq_fast_model: str = "groq/compound-mini"
-    groq_smart_model: str = "groq/compound"
+    groq_fast_model: str = "llama-3.1-8b-instant"
+    groq_smart_model: str = "llama-3.3-70b-versatile"
 
     # OpenAI — paid production
     openai_api_key: str = ""
@@ -87,6 +87,11 @@ class Settings(BaseSettings):
         elif self.llm_provider == "gemini":
             return self.gemini_smart_model
         return self.groq_smart_model
+
+    @property
+    def using_mock_data(self) -> bool:
+        """Return True if Apollo API key is not configured."""
+        return not bool(self.apollo_api_key and self.apollo_api_key.strip())
 
 
     class Config:

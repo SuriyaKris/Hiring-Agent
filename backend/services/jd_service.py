@@ -40,48 +40,51 @@ async def parse_jd(jd_text: str, role_name: str) -> JDSearchSpec:
             user_message=user_message,
             use_smart_model=False,   # fast/cheap model is sufficient
             temperature=0.1,
-            max_tokens=4000,
+            max_tokens=1500,
         )
     except Exception as e:
         logger.warning(f"LLM parsing failed ({e}). Constructing heuristic search spec fallback.")
         from nlp.keyword_extractor import extract_backup_titles, extract_backup_persona, extract_backup_territory
-        fallback_titles = extract_backup_titles(jd_text) or ([role_name.strip()] if role_name else ["Account Executive"])
+        fallback_titles = extract_backup_titles(jd_text) or ([role_name.strip()] if role_name else ["Software Engineer"])
         fallback_persona = extract_backup_persona(jd_text)
         fallback_territory = extract_backup_territory(jd_text)
+        fallback_geo = [fallback_territory] if fallback_territory else []
+        
+        # Simple extraction of prominent capitalized terms or common tech skills
         data = {
             "primary_titles": fallback_titles,
-            "related_titles": [f"Senior {t}" for t in fallback_titles[:2]] + [f"{t} Representative" for t in fallback_titles[:1]],
-            "required_skills": ["Sales", "CRM", "Business Development", "Lead Generation"],
-            "nice_to_have_skills": ["SaaS", "Salesforce", "Outreach", "HubSpot"],
-            "target_companies": ["Salesforce", "HubSpot", "ZoomInfo", "Gong"],
+            "related_titles": [f"Senior {t}" for t in fallback_titles[:2]] + [f"Lead {t}" for t in fallback_titles[:1]],
+            "required_skills": fallback_titles[:3],
+            "nice_to_have_skills": [],
+            "target_companies": [],
             "excluded_companies": ["Staffing", "Recruiting Agency"],
             "seniority_levels": ["Mid-Level", "Senior"],
-            "geo_keywords": [fallback_territory, "United States", "Remote US"],
+            "geo_keywords": fallback_geo,
             "min_experience_years": 2,
-            "boolean_search_string": f'("{" OR ".join(fallback_titles[:3])}") AND ("{fallback_territory}")',
-            "summary": f"Targeting {role_name or 'sales professionals'} with relevant experience.",
+            "boolean_search_string": f'("{" OR ".join(fallback_titles[:3])}")' + (f' AND ("{fallback_territory}")' if fallback_territory else ""),
+            "summary": f"Targeting {role_name or (fallback_titles[0] if fallback_titles else 'candidates')} with relevant experience.",
             "target_titles": fallback_titles,
             "target_persona": fallback_persona,
             "target_territory": fallback_territory,
             "jd_requirements_text": jd_text,
         }
     
-    # Run fallbacks if the fields are missing/empty in LLM response
+    # Run fallbacks if critical fields are missing
     from nlp.keyword_extractor import extract_backup_titles, extract_backup_persona, extract_backup_territory
     
     if not data.get("target_titles"):
-        logger.warning("target_titles missing from LLM parse, running heuristic fallback")
         data["target_titles"] = extract_backup_titles(jd_text)
         if not data["target_titles"]:
             data["target_titles"] = data.get("primary_titles", []) + data.get("related_titles", [])
             
     if not data.get("target_persona"):
-        logger.warning("target_persona missing from LLM parse, running heuristic fallback")
         data["target_persona"] = extract_backup_persona(jd_text)
         
-    if not data.get("target_territory"):
-        logger.warning("target_territory missing from LLM parse, running heuristic fallback")
+    if "target_territory" not in data or data.get("target_territory") is None:
         data["target_territory"] = extract_backup_territory(jd_text)
+
+    if not isinstance(data.get("geo_keywords"), list):
+        data["geo_keywords"] = [data["geo_keywords"]] if data.get("geo_keywords") else []
 
     if "jd_requirements_text" not in data or not data["jd_requirements_text"]:
         data["jd_requirements_text"] = jd_text
