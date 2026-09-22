@@ -125,6 +125,32 @@ async def init_db():
                     from loguru import logger
                     logger.warning(f"Could not enable pgvector extension: {e}")
             await conn.run_sync(Base.metadata.create_all)
+
+        # Seed default demo recruiter user if not present
+        async with AsyncSessionLocal() as session:
+            from sqlalchemy import select
+            import bcrypt
+            stmt = select(UserRecord).where(UserRecord.email == "recruiter@4cecloud.com")
+            res = await session.execute(stmt)
+            if not res.scalars().first():
+                demo_pw = bcrypt.hashpw(b"password123", bcrypt.gensalt()).decode("utf-8")
+                session.add(UserRecord(
+                    email="recruiter@4cecloud.com",
+                    hashed_password=demo_pw,
+                    full_name="Meghana (Recruiter)"
+                ))
+                from loguru import logger
+                logger.info("Created default demo user: recruiter@4cecloud.com")
+
+            # Clean legacy 0 matched skills reasoning from database
+            from sqlalchemy import update
+            await session.execute(
+                update(CandidateRecord)
+                .where(CandidateRecord.score_reasoning.like("%0 matched skills%"))
+                .values(score_reasoning="")
+            )
+            await session.commit()
+
         from loguru import logger
         logger.info("Database schema initialized successfully.")
     except Exception as e:

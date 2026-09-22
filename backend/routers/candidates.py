@@ -237,25 +237,24 @@ def _normalize_raw_json(raw_json_str: str, source: str) -> dict:
     
     
 @router.get("/candidates")
-async def get_candidates(db: AsyncSession = Depends(get_db), current_user = Depends(get_current_user)):
-    """Return all stored candidates sorted by score."""
+async def get_candidates(role_name: str | None = None, db: AsyncSession = Depends(get_db), current_user = Depends(get_current_user)):
+    """Return stored candidates sorted by score."""
     sess_res = await db.execute(
         select(SearchSessionRecord.session_id).where(SearchSessionRecord.user_id == current_user.id)
     )
     user_session_ids = [r[0] for r in sess_res.all()]
 
+    stmt = select(CandidateRecord).where(CandidateRecord.source != "mock")
+
     if user_session_ids:
-        result = await db.execute(
-            select(CandidateRecord)
-            .where(CandidateRecord.search_session_id.in_(user_session_ids))
-            .order_by(CandidateRecord.fitment_score.desc())
-        )
-        rows = result.scalars().all()
-    else:
-        result = await db.execute(
-            select(CandidateRecord).order_by(CandidateRecord.fitment_score.desc())
-        )
-        rows = result.scalars().all()
+        stmt = stmt.where(CandidateRecord.search_session_id.in_(user_session_ids))
+
+    if role_name and role_name.strip() and role_name.strip().lower() != "all":
+        stmt = stmt.where(CandidateRecord.role_name == role_name.strip())
+
+    stmt = stmt.order_by(CandidateRecord.fitment_score.desc())
+    result = await db.execute(stmt)
+    rows = result.scalars().all()
 
     return [
         {

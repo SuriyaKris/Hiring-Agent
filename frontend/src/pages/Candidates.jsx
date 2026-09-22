@@ -13,6 +13,7 @@ export default function Candidates({ onGenerateOutreach, sessionId }) {
   const [candidates, setCandidates] = useState([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState('all')
+  const [roleFilter, setRoleFilter] = useState('all')
   const [search, setSearch] = useState('')
   const [expandedId, setExpandedId] = useState(null)
   const [useEngineered, setUseEngineered] = useState(true)
@@ -44,7 +45,7 @@ export default function Candidates({ onGenerateOutreach, sessionId }) {
     if (queueIndex >= queueList.length) return
     const curr = queueList[queueIndex]
     
-    const roleName = curr.role_name || 'Inside Sales – US Region'
+    const roleName = curr.role_name || curr.current_title || 'Software Engineer'
     const companyName = '4CECloud Labs'
     const recruiterName = 'Meghana'
     const subject = `Exciting Career Opportunity: ${roleName} role at ${companyName}`
@@ -115,6 +116,8 @@ export default function Candidates({ onGenerateOutreach, sessionId }) {
     }
   }
 
+  const availableRoles = Array.from(new Set(candidates.map(c => c.role_name).filter(Boolean)))
+
   const sortedAndFiltered = [...candidates]
     .sort((a, b) => {
       const aScore = useEngineered && a.profile_details?.engineered_fitment_score !== undefined
@@ -126,6 +129,7 @@ export default function Candidates({ onGenerateOutreach, sessionId }) {
       return bScore - aScore;
     })
     .filter(c => filter === 'all' || c.recruiter_verdict === filter)
+    .filter(c => roleFilter === 'all' || c.role_name === roleFilter)
     .filter(c => !search || c.full_name.toLowerCase().includes(search.toLowerCase()) ||
       c.current_company.toLowerCase().includes(search.toLowerCase()) ||
       c.current_title.toLowerCase().includes(search.toLowerCase()))
@@ -159,6 +163,18 @@ export default function Candidates({ onGenerateOutreach, sessionId }) {
           placeholder="Search name, company, title..."
           className="flex-1 bg-[#edf2fa] border border-slate-200/75 rounded-xl px-4.5 py-2.5 text-sm focus:outline-none focus:border-blue-500 focus:bg-white text-slate-800 transition-all font-semibold" 
         />
+        {availableRoles.length > 1 && (
+          <select
+            value={roleFilter}
+            onChange={e => setRoleFilter(e.target.value)}
+            className="border border-slate-200 bg-[#edf2fa] text-slate-800 font-bold rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
+          >
+            <option value="all">All Roles ({candidates.length})</option>
+            {availableRoles.map(r => (
+              <option key={r} value={r}>{r} ({candidates.filter(c => c.role_name === r).length})</option>
+            ))}
+          </select>
+        )}
         <div className="flex gap-1.5 bg-slate-100 p-1 rounded-xl">
           {['all', 'shortlist', 'maybe', 'pending', 'reject'].map(f => (
             <button key={f} onClick={() => setFilter(f)}
@@ -257,8 +273,8 @@ export default function Candidates({ onGenerateOutreach, sessionId }) {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {[
             { label: 'Total Sourced', val: candidates.length, color: 'text-slate-800' },
-            { label: 'Recommended AEs', val: candidates.filter(c => c.recommended_action === 'Reach out now').length, color: 'text-green-700' },
-            { label: 'Shortlisted AEs', val: candidates.filter(c => c.recruiter_verdict === 'shortlist').length, color: 'text-blue-700' },
+            { label: 'Recommended Candidates', val: candidates.filter(c => c.recommended_action === 'Reach out now').length, color: 'text-green-700' },
+            { label: 'Shortlisted Candidates', val: candidates.filter(c => c.recruiter_verdict === 'shortlist').length, color: 'text-blue-700' },
             { label: 'Average Match Score', val: Math.round(candidates.reduce((a, c) => a + c.fitment_score, 0) / candidates.length) + '%', color: 'text-slate-800' },
           ].map(s => (
             <div key={s.label} className="bg-white rounded-2xl border border-slate-200 p-4 text-center shadow-sm">
@@ -331,8 +347,12 @@ export default function Candidates({ onGenerateOutreach, sessionId }) {
                       )}
                     </div>
                     <p className="text-xs text-slate-650 font-semibold leading-relaxed">{c.current_title} · {c.current_company}</p>
-                    <p className="text-xs text-slate-400 font-medium mt-0.5">{c.location}</p>
-                    <p className="text-xs text-slate-500 font-medium mt-2 leading-relaxed bg-[#f8fafc] border border-slate-100 rounded-xl p-3">{c.score_reasoning}</p>
+                    {c.location && c.location.trim() && (
+                      <p className="text-xs text-slate-400 font-medium mt-0.5">{c.location}</p>
+                    )}
+                    {c.score_reasoning && c.score_reasoning.trim() && !c.score_reasoning.includes('0 matched skills') && (
+                      <p className="text-xs text-slate-500 font-medium mt-2 leading-relaxed bg-[#f8fafc] border border-slate-100 rounded-xl p-3">{c.score_reasoning}</p>
+                    )}
 
                     {/* Feature Engineering Breakdown */}
                     {useEngineered && c.profile_details?.engineered_features ? (
@@ -372,14 +392,6 @@ export default function Candidates({ onGenerateOutreach, sessionId }) {
                       <span className="text-[10px] text-green-700 font-bold bg-green-50 px-2.5 py-1 rounded-lg border border-green-100 inline-flex items-center gap-1" title={c.email}>
                         ✉️ {c.email}
                       </span>
-                    )}
-                    {!c.email && (
-                      <button
-                        onClick={() => enrichCandidate(c.linkedin_url)}
-                        className="text-[10px] bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded-lg font-bold shadow-sm transition-all outline-none"
-                      >
-                        ⚡ Enrich Profile
-                      </button>
                     )}
 
                     {/* Verdict actions */}

@@ -142,13 +142,21 @@ def _rule_based_fallback_score(profile: CandidateProfile, spec: JDSearchSpec) ->
         bonuses=5 if is_open else 0,
     )
 
+    target_role = spec.role_name or (spec.primary_titles[0] if spec.primary_titles else "the target role")
+    if matched > 0:
+        reasoning = f"Matched {matched} key skill{'s' if matched != 1 else ''} for {target_role}."
+    elif any(t.lower() in title_lower for t in spec.primary_titles):
+        reasoning = f"Title alignment as {current_title} for {target_role}."
+    else:
+        reasoning = ""
+
     action = "Reach out now" if score >= 75 else ("Consider" if score >= 50 else "Skip")
 
     return ScoredCandidate(
         profile=profile,
         fitment_score=min(100.0, score),
         score_breakdown=breakdown,
-        score_reasoning=f"High alignment with {matched} matched skills and relevant sales experience.",
+        score_reasoning=reasoning,
         recommended_action=action,
     )
 

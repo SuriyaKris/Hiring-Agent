@@ -49,14 +49,13 @@ export default function App() {
   }
 
   const handleLogout = () => {
-    axios.post('/api/auth/logout').finally(() => {
-      localStorage.removeItem('token')
-      localStorage.removeItem('user')
-      delete axios.defaults.headers.common['Authorization']
-      setToken(null)
-      setUser(null)
-      setTab('dashboard')
-    })
+    localStorage.removeItem('token')
+    localStorage.removeItem('user')
+    delete axios.defaults.headers.common['Authorization']
+    setToken(null)
+    setUser(null)
+    setTab('dashboard')
+    axios.post('/api/auth/logout').catch(() => {})
   }
 
   const goToOutreach = (candidate) => {

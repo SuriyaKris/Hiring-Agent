@@ -80,9 +80,9 @@ echo.
 echo  Setting POC mode (free Groq LLM)...
 "%VENV_PYTHON%" "%PROJECT_DIR%scripts\switch_provider.py" poc
 
-REM ── Seed mock data ───────────────────────────────────────────
+REM ── Initialize database ───────────────────────────────────────
 echo.
-echo  Loading mock candidates into database...
+echo  Initializing database...
 "%VENV_PYTHON%" "%PROJECT_DIR%scripts\seed_mock.py"
 
 REM ── npm install ──────────────────────────────────────────────

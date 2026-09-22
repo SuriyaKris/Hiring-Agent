@@ -69,22 +69,126 @@ def _resolve_model(provider: str, model: str) -> str:
 
 
 def _clean_json(text: str) -> str:
-    """Strip markdown code fences, trailing commas, and extract outermost JSON object."""
+    """
+    Strip markdown code fences, comments, repair truncated or malformed JSON,
+    and extract the outermost JSON object/array.
+    """
     if not text:
         return "{}"
     text = text.strip()
     # Remove markdown code fences
-    text = re.sub(r"^```(?:json)?\s*", "", text)
+    text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE)
     text = re.sub(r"\s*```$", "", text)
     text = text.strip()
 
-    # If surrounded by commentary, extract outermost { ... }
-    match = re.search(r"(\{.*\})", text, re.DOTALL)
-    if match:
-        text = match.group(1).strip()
+    # Find the start of JSON object or array
+    first_brace = text.find("{")
+    first_bracket = text.find("[")
+    if first_brace == -1 and first_bracket == -1:
+        return "{}"
+
+    start_idx = first_brace if (first_bracket == -1 or (first_brace != -1 and first_brace < first_bracket)) else first_bracket
+    text = text[start_idx:]
 
     # Remove trailing commas before closing braces/brackets
     text = re.sub(r",\s*([\]}])", r"\1", text)
+
+    # Fast path: try parsing directly
+    try:
+        json.loads(text)
+        return text
+    except Exception:
+        pass
+
+    # Repair truncated or malformed JSON
+    stack = []
+    in_string = False
+    escape = False
+    cleaned_chars = []
+
+    for char in text:
+        if escape:
+            escape = False
+            cleaned_chars.append(char)
+            continue
+        if char == '\\':
+            escape = True
+            cleaned_chars.append(char)
+            continue
+        if char == '"':
+            in_string = not in_string
+            cleaned_chars.append(char)
+            continue
+        if in_string:
+            cleaned_chars.append(char)
+            continue
+
+        if char in '{[':
+            stack.append('}' if char == '{' else ']')
+            cleaned_chars.append(char)
+        elif char in '}]':
+            if stack and stack[-1] == char:
+                stack.pop()
+            cleaned_chars.append(char)
+        else:
+            cleaned_chars.append(char)
+
+    repaired = "".join(cleaned_chars)
+
+    # If truncated inside a string literal, close the quote
+    if in_string:
+        repaired += '"'
+
+    # Remove trailing commas
+    repaired = re.sub(r",\s*$", "", repaired.strip())
+
+    # Close any unclosed brackets/braces in reverse order
+    for closing in reversed(stack):
+        repaired = re.sub(r",\s*$", "", repaired.strip())
+        repaired += closing
+
+    repaired = re.sub(r",\s*([\]}])", r"\1", repaired)
+
+    try:
+        json.loads(repaired)
+        return repaired
+    except Exception:
+        # If repair needs line-by-line backtracking (e.g. truncated key/colon)
+        lines = repaired.split("\n")
+        for i in range(len(lines) - 1, 0, -1):
+            candidate = "\n".join(lines[:i])
+            candidate = re.sub(r",\s*$", "", candidate.strip())
+            c_stack = []
+            c_in_str = False
+            c_esc = False
+            for c in candidate:
+                if c_esc:
+                    c_esc = False
+                    continue
+                if c == '\\':
+                    c_esc = True
+                    continue
+                if c == '"':
+                    c_in_str = not c_in_str
+                    continue
+                if c_in_str:
+                    continue
+                if c in '{[':
+                    c_stack.append('}' if c == '{' else ']')
+                elif c in '}]' and c_stack and c_stack[-1] == c:
+                    c_stack.pop()
+            if c_in_str:
+                candidate += '"'
+            for cl in reversed(c_stack):
+                candidate = re.sub(r",\s*$", "", candidate.strip())
+                candidate += cl
+            candidate = re.sub(r",\s*([\]}])", r"\1", candidate)
+            try:
+                json.loads(candidate)
+                return candidate
+            except Exception:
+                continue
+
     return text
 
 

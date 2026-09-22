@@ -10,15 +10,18 @@ def clean_geo_locations_for_apollo(geo_keywords: List[str]) -> List[str]:
     non_geo = {
         "remote", "us remote", "remote us", "remote-first", "anywhere",
         "global", "worldwide", "hybrid", "work from home", "wfh", "all",
-        "unspecified", "any"
+        "unspecified", "any", "remote - global", "remote (global)"
     }
     cleaned = []
     for g in geo_keywords:
         if not g:
             continue
         g_clean = g.strip()
-        if g_clean.lower() not in non_geo:
-            cleaned.append(g_clean)
+        if g_clean.lower() not in non_geo and not g_clean.lower().startswith("remote"):
+            # Clean trailing (Remote) or (Hybrid) suffixes e.g., "India (Remote)" -> "India"
+            g_clean = g_clean.split("(")[0].strip()
+            if g_clean and g_clean.lower() not in non_geo:
+                cleaned.append(g_clean)
     return cleaned
 
 
@@ -32,18 +35,19 @@ class ApolloSearchPlanner:
         """
         logger.info(f"[Apollo Search Planner] Compiling filters with broadening_level={broadening_level}")
         
-        # Primary titles mapping (unify role_name and parsed primary titles)
-        from nlp.title_taxonomy import clean_role_name_for_search
+        # Primary titles mapping
         titles = list(spec.primary_titles) if spec.primary_titles else []
         
-        if spec.role_name:
+        if not titles and spec.target_titles:
+            titles = list(spec.target_titles)
+
+        # Fallback to role_name only if primary_titles is completely empty
+        if not titles and spec.role_name:
+            from nlp.title_taxonomy import clean_role_name_for_search
             cleaned_role_titles = clean_role_name_for_search(spec.role_name)
             for rt in cleaned_role_titles:
                 if rt and rt not in titles:
                     titles.append(rt)
-                    
-        if not titles and spec.target_titles:
-            titles = list(spec.target_titles)
 
         if broadening_level >= 1 and spec.related_titles:
             for rt in spec.related_titles:
@@ -54,6 +58,10 @@ class ApolloSearchPlanner:
             
         # Locations mapping — clean non-geographic keywords like Remote
         locations = clean_geo_locations_for_apollo(spec.geo_keywords or [])
+        if not locations and spec.target_territory:
+            locs = clean_geo_locations_for_apollo([spec.target_territory])
+            if locs:
+                locations = locs
 
         # Skills mapping
         skills = spec.required_skills.copy() if spec.required_skills else []

@@ -174,7 +174,7 @@ class FeatureEngineeringService:
         # Fallback to standard spec fields if Phase 1 specific fields are not set
         target_titles = spec.target_titles or spec.primary_titles or []
         target_persona = spec.target_persona or (spec.primary_titles[0] if spec.primary_titles else spec.summary)
-        target_territory = spec.target_territory or (spec.geo_keywords[0] if spec.geo_keywords else "United States")
+        target_territory = spec.target_territory or (spec.geo_keywords[0] if spec.geo_keywords else "")
         raw_data = profile.metadata.raw_data or {}
         
         # We check if they are completely missing or empty

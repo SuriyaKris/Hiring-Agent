@@ -28,13 +28,13 @@ def clean_company(company: Optional[str]) -> str:
 
 
 def clean_location(loc: Optional[str]) -> str:
-    """Normalize location syntax."""
+    """Normalize location syntax without injecting default countries."""
     if not loc:
-        return "United States"
+        return ""
     loc = loc.strip()
     # Map double comma or trailing spaces
     loc = re.sub(r'\s*,\s*', ', ', loc)
-    return loc
+    return loc.strip(", ")
 
 
 def normalize_url(url: Optional[str]) -> str:

@@ -2,35 +2,38 @@ import React, { useState } from 'react'
 import axios from 'axios'
 import toast from 'react-hot-toast'
 
-const SAMPLE_JD = `We are looking for a dynamic Inside Sales Representative / US Sales Executive to join our growing team at 4CECloud Labs.
+const SAMPLE_JD = `We are looking for a Senior Python Developer / Backend Engineer to join our core engineering team in Bangalore.
 
-Role: Inside Sales – US Region
+Role: Senior Python Developer
+Location: Bangalore, Karnataka, India (Hybrid)
 
 Responsibilities:
-- Drive new business development and pipeline generation for our Salesforce CRM solutions
-- Conduct outbound prospecting via calls, emails, and LinkedIn outreach
-- Qualify inbound leads and convert them to opportunities
-- Maintain accurate records in Salesforce CRM
-- Achieve monthly and quarterly sales targets
+- Design, develop, and maintain high-performance microservices using Python, FastAPI, and Django
+- Architect robust REST and GraphQL APIs for enterprise client applications
+- Optimize relational database queries in PostgreSQL and manage caching with Redis
+- Deploy, monitor, and scale backend services on AWS (ECS, Lambda, S3, RDS)
+- Collaborate with frontend engineers, product managers, and QA teams in an agile environment
+- Write comprehensive unit, integration, and end-to-end tests
 
 Requirements:
-- 3-5 years of inside sales or SDR/BDR experience in SaaS or CRM space
-- Strong knowledge of Salesforce, HubSpot, or similar CRM platforms
-- Experience selling to US-based businesses
-- Excellent communication and interpersonal skills
-- Track record of meeting/exceeding quota
+- 4-8 years of professional software engineering experience in Python
+- Deep expertise with modern Python frameworks (FastAPI, Django, Flask, or AsyncIO)
+- Strong experience with relational databases (PostgreSQL, MySQL) and database schema design
+- Proficiency in containerization with Docker and CI/CD automation pipelines
+- Hands-on experience with cloud infrastructure (AWS or GCP)
+- Solid understanding of data structures, algorithms, and microservice architectures
 
-Nice to have:
-- Experience with Outreach.io, Salesloft, or Gong
-- Background in Salesforce partner ecosystem
-- Remote-first work experience
+Nice to Have:
+- Experience with Apache Kafka, Celery, or RabbitMQ event streaming
+- Familiarity with Kubernetes and Helm
+- Experience with GraphQL and Elasticsearch
 
-Location: US Remote (Eastern or Central timezone preferred)`
+Location: Bangalore, India`
 
 export default function Pipeline({ onCandidatesReady }) {
   const [step, setStep] = useState('input') // 'input' | 'review'
-  const [jdText, setJdText] = useState(SAMPLE_JD)
-  const [roleName, setRoleName] = useState('Inside Sales – US Region')
+  const [jdText, setJdText] = useState('')
+  const [roleName, setRoleName] = useState('')
   const [maxCandidates, setMaxCandidates] = useState(20)
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState(null)
@@ -43,6 +46,12 @@ export default function Pipeline({ onCandidatesReady }) {
   const [newGeo, setNewGeo] = useState('')
   const [newTech, setNewTech] = useState('')
   const [newSeniority, setNewSeniority] = useState('')
+
+  const loadExampleJd = () => {
+    setJdText(SAMPLE_JD)
+    setRoleName('Senior Python Developer')
+    toast.success('Loaded example Python Developer JD')
+  }
 
   const handleFileUpload = async (e) => {
     const file = e.target.files[0]
@@ -60,7 +69,7 @@ export default function Pipeline({ onCandidatesReady }) {
       })
       if (data.jd_text) {
         setJdText(data.jd_text)
-        toast.success(`Successfully parsed ${file.name}!`)
+        toast.success(`Successfully loaded ${file.name}! Click 'Extract Sourcing Criteria' to analyze.`)
       } else {
         toast.error('No text could be extracted from this file.')
       }
@@ -89,6 +98,11 @@ export default function Pipeline({ onCandidatesReady }) {
       if (!data.required_skills) data.required_skills = []
       if (!data.geo_keywords) data.geo_keywords = []
       if (!data.seniority_levels) data.seniority_levels = []
+
+      // Auto-populate role name from extracted title if empty or default
+      if (data.role_name || (data.primary_titles && data.primary_titles.length > 0)) {
+        setRoleName(data.role_name || data.primary_titles[0])
+      }
 
       setSpec(data)
       setStep('review')
@@ -126,9 +140,10 @@ export default function Pipeline({ onCandidatesReady }) {
     setLoading(true)
     setResult(null)
     try {
+      const activeRole = roleName || (spec?.primary_titles?.[0] || 'Target Role')
       const { data } = await axios.post('/api/pipeline/run', {
         jd_text: jdText,
-        role_name: roleName,
+        role_name: activeRole,
         recruiter_name: 'Meghana',
         company_name: '4CECloud Labs',
         max_candidates: maxCandidates,
@@ -165,17 +180,26 @@ export default function Pipeline({ onCandidatesReady }) {
       {step === 'input' ? (
         /* Config row */
         <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-6 shadow-sm">
-          <div>
-            <h2 className="text-[15px] font-bold text-slate-800">Fully Automated AI Pipeline</h2>
-            <p className="text-xs text-slate-400 font-medium mt-1">Configure your role target parameters and parse details automatically.</p>
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-[15px] font-bold text-slate-800">Fully Automated AI Pipeline</h2>
+              <p className="text-xs text-slate-400 font-medium mt-1">Paste or upload any Job Description to automatically extract role titles, skills, and target locations.</p>
+            </div>
+            <button
+              onClick={loadExampleJd}
+              className="text-xs text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 font-bold px-3 py-1.5 rounded-lg border border-blue-200 transition-all outline-none"
+            >
+              Load Example JD
+            </button>
           </div>
           
           <div className="grid grid-cols-2 gap-5">
             <div>
-              <label className="block text-[9px] font-bold text-slate-400 tracking-wider uppercase mb-1.5">Role Name</label>
+              <label className="block text-[9px] font-bold text-slate-400 tracking-wider uppercase mb-1.5">Role Name (Optional — Auto-detected from JD)</label>
               <input 
                 value={roleName} 
                 onChange={e => setRoleName(e.target.value)}
+                placeholder="e.g. Senior Python Developer (or leave blank to auto-detect)"
                 className="w-full bg-[#edf2fa] border border-slate-200/70 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-blue-500 focus:bg-white text-slate-800 transition-all font-semibold" 
               />
             </div>
@@ -211,6 +235,7 @@ export default function Pipeline({ onCandidatesReady }) {
             <textarea 
               value={jdText} 
               onChange={e => setJdText(e.target.value)}
+              placeholder="Paste the full job description here (including role title, responsibilities, technical requirements, and location)..."
               className="w-full bg-[#edf2fa] border border-slate-200/70 rounded-xl px-4 py-3 text-sm h-52 resize-none focus:outline-none focus:border-blue-500 focus:bg-white text-slate-700 leading-relaxed transition-all font-medium" 
             />
           </div>
@@ -235,7 +260,7 @@ export default function Pipeline({ onCandidatesReady }) {
           <div className="flex items-center justify-between border-b border-slate-150 pb-4">
             <div>
               <h2 className="text-[15px] font-bold text-slate-800">Review Sourcing Criteria</h2>
-              <p className="text-xs text-slate-400 font-medium mt-1">Review, add, or remove target keywords and parameters compiled from the job description.</p>
+              <p className="text-xs text-slate-400 font-medium mt-1">Review, add, or remove target keywords, job titles, and location filters extracted from the JD.</p>
             </div>
             <button 
               onClick={() => setStep('input')} 
@@ -302,10 +327,15 @@ export default function Pipeline({ onCandidatesReady }) {
 
             {/* Locations / Geographies */}
             <div className="border border-slate-200/80 rounded-2xl p-5 bg-[#f8fafc]/50">
-              <label className="block text-[9px] font-bold text-slate-400 tracking-wider uppercase mb-3">Target Locations</label>
+              <div className="flex items-center justify-between mb-3">
+                <label className="block text-[9px] font-bold text-slate-400 tracking-wider uppercase">Target Locations & Cities</label>
+                {spec.target_territory && (
+                  <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded">Territory: {spec.target_territory}</span>
+                )}
+              </div>
               <div className="flex flex-wrap gap-1.5 mb-4 min-h-[40px] items-center">
                 {spec.geo_keywords.length === 0 ? (
-                  <p className="text-xs text-slate-400 italic">No locations added.</p>
+                  <p className="text-xs text-slate-400 italic">No location restrictions (Global search).</p>
                 ) : (
                   spec.geo_keywords.map((g, idx) => (
                     <span key={idx} className="inline-flex items-center gap-1.5 text-xs font-semibold bg-slate-100 text-slate-750 px-2.5 py-0.5 rounded-full border border-slate-200">
@@ -319,7 +349,7 @@ export default function Pipeline({ onCandidatesReady }) {
                 <input 
                   value={newGeo} 
                   onChange={e => setNewGeo(e.target.value)} 
-                  placeholder="Add custom location..." 
+                  placeholder="Add location (e.g. Bangalore, London, India)..." 
                   onKeyDown={e => e.key === 'Enter' && addPill('geo_keywords', newGeo, setNewGeo)}
                   className="bg-[#edf2fa] border border-slate-200/60 rounded-lg px-3 py-1.5 text-xs w-full focus:outline-none focus:bg-white text-slate-700 font-medium transition-all" 
                 />
@@ -346,7 +376,7 @@ export default function Pipeline({ onCandidatesReady }) {
                 <input 
                   value={newTech} 
                   onChange={e => setNewTech(e.target.value)} 
-                  placeholder="Add tech filter (e.g. salesforce, hubspot)..." 
+                  placeholder="Add tech filter (e.g. salesforce, hubspot, aws)..." 
                   onKeyDown={e => e.key === 'Enter' && addPill('currently_using_technology_uids', newTech, setNewTech)}
                   className="bg-[#edf2fa] border border-slate-200/60 rounded-lg px-3 py-1.5 text-xs w-full focus:outline-none focus:bg-white text-slate-700 font-medium transition-all" 
                 />
@@ -420,11 +450,10 @@ export default function Pipeline({ onCandidatesReady }) {
           <div className="space-y-2">
             {[
               'Parsing JD and building search specifications...',
-              'Querying Apollo Mixed People search APIs...',
-              'Processing supplemental LinkedIn/Indeed scraper fallbacks...',
-              'Resolving duplicate candidate profile records...',
-              'Evaluating fitment scorecards with Llama-3.3-70b...',
-              'Ranking candidate recommendations...'
+              'Querying Apollo People search APIs for targeted locations...',
+              'Resolving candidate identities and validating contact data...',
+              'Evaluating AI fitment scorecards against requirements...',
+              'Ranking and formatting candidate recommendations...'
             ].map((step, i) => (
               <div key={i} className="flex items-center gap-3 text-xs text-blue-700/80 font-bold">
                 <span className="animate-pulse text-blue-600 text-[10px]">◉</span> {step}
@@ -475,31 +504,38 @@ export default function Pipeline({ onCandidatesReady }) {
           {/* Top 3 preview */}
           <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4">
             <p className="text-[9px] font-bold text-slate-400 tracking-wider uppercase">Top 3 Candidates Recommendation Preview</p>
-            <div className="divide-y divide-slate-100">
-              {result.candidates?.slice(0,3).map((c, i) => (
-                <div key={i} className="flex items-center justify-between py-3 first:pt-0 last:pb-0">
-                  <div>
-                    {(c.profile.basic_info?.linkedin_url || c.profile.linkedin_url) ? (
-                      <a href={c.profile.basic_info?.linkedin_url || c.profile.linkedin_url} target="_blank" rel="noopener noreferrer" className="text-xs font-bold text-blue-600 hover:text-blue-800 flex items-center gap-1">
-                        {c.profile.basic_info?.full_name || c.profile.full_name}
-                        <span className="text-[10px] opacity-60">🔗</span>
-                      </a>
-                    ) : (
-                      <p className="text-xs font-bold text-slate-800">{c.profile.basic_info?.full_name || c.profile.full_name}</p>
-                    )}
-                    <p className="text-[11px] text-slate-500 font-medium mt-0.5">
-                      {(c.profile.experience?.[0]?.title || c.profile.basic_info?.headline || c.profile.current_title || "")} · {(c.profile.experience?.[0]?.company_name || c.profile.company?.name || c.profile.current_company || "")}
-                    </p>
+            {result.candidates && result.candidates.length > 0 ? (
+              <div className="divide-y divide-slate-100">
+                {result.candidates?.slice(0,3).map((c, i) => (
+                  <div key={i} className="flex items-center justify-between py-3 first:pt-0 last:pb-0">
+                    <div>
+                      {(c.profile.basic_info?.linkedin_url || c.profile.linkedin_url) ? (
+                        <a href={c.profile.basic_info?.linkedin_url || c.profile.linkedin_url} target="_blank" rel="noopener noreferrer" className="text-xs font-bold text-blue-600 hover:text-blue-800 flex items-center gap-1">
+                          {c.profile.basic_info?.full_name || c.profile.full_name}
+                          <span className="text-[10px] opacity-60">🔗</span>
+                        </a>
+                      ) : (
+                        <p className="text-xs font-bold text-slate-800">{c.profile.basic_info?.full_name || c.profile.full_name}</p>
+                      )}
+                      <p className="text-[11px] text-slate-500 font-medium mt-0.5">
+                        {(c.profile.experience?.[0]?.title || c.profile.basic_info?.headline || c.profile.current_title || "")} · {(c.profile.experience?.[0]?.company_name || c.profile.company?.name || c.profile.current_company || "")}
+                      </p>
+                      {c.profile.basic_info?.location && c.profile.basic_info.location.trim() && (
+                        <p className="text-[10px] text-slate-400 font-medium">📍 {c.profile.basic_info.location}</p>
+                      )}
+                    </div>
+                    <div className="text-right">
+                      <span className={`text-xs font-extrabold ${c.fitment_score >= 75 ? 'text-green-600' : c.fitment_score >= 50 ? 'text-amber-600' : 'text-red-500'}`}>
+                        {Math.round(c.fitment_score)}/100
+                      </span>
+                      <p className="text-[10px] text-slate-400 font-bold mt-0.5 uppercase tracking-wider">{c.recommended_action}</p>
+                    </div>
                   </div>
-                  <div className="text-right">
-                    <span className={`text-xs font-extrabold ${c.fitment_score >= 75 ? 'text-green-600' : c.fitment_score >= 50 ? 'text-amber-600' : 'text-red-500'}`}>
-                      {Math.round(c.fitment_score)}/100
-                    </span>
-                    <p className="text-[10px] text-slate-400 font-bold mt-0.5 uppercase tracking-wider">{c.recommended_action}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-slate-400 italic py-2">No candidate profiles were returned for this search.</p>
+            )}
             <button onClick={onCandidatesReady} className="block text-xs text-[#0B57D0] hover:text-[#0842a0] font-bold outline-none">
               See all {result.total_sourced} candidates →
             </button>

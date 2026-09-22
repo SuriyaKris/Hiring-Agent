@@ -29,7 +29,6 @@ class CompanyProvider(BaseProvider):
         return 3.0
 
     async def can_enrich(self, profile: CandidateProfile) -> bool:
-        # Requires a company name (either in experience or basic company detail name) to query details
         current_job = profile.experience[0] if profile.experience else None
         has_name = bool(profile.company and profile.company.name) or bool(current_job and current_job.company_name)
         return has_name
@@ -37,8 +36,9 @@ class CompanyProvider(BaseProvider):
     async def enrich(self, profile: CandidateProfile) -> CandidateProfile:
         if not profile.company or not profile.company.name:
             current_job = profile.experience[0] if profile.experience else None
-            name = profile.company.name if (profile.company and profile.company.name) else (current_job.company_name if current_job else "Unknown Company")
-            profile.company = CompanyDetails(name=name, website="http://company.com", size="1000-5000")
+            name = profile.company.name if (profile.company and profile.company.name) else (current_job.company_name if current_job else "")
+            if name:
+                profile.company = CompanyDetails(name=name, website="", size="")
         profile.metadata.raw_data = profile.metadata.raw_data or {}
         profile.metadata.raw_data["executed_providers"] = list(set(profile.metadata.raw_data.get("executed_providers", []) + ["Company"]))
         profile.metadata.field_sources = profile.metadata.field_sources or {}

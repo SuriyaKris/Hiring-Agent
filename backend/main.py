@@ -82,7 +82,8 @@ async def health():
 @app.get("/api/status")
 async def get_status():
     return {
-        "using_mock_data": not bool(settings.apollo_api_key),
+        "apollo_active": bool(settings.apollo_api_key),
+        "using_mock_data": False,
         "llm_provider": settings.llm_provider,
         "fast_model": settings.fast_model,
     }

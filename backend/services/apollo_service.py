@@ -1,10 +1,10 @@
 """
 Apollo Service — People Search + Contact Enrichment
 
-POC mode  (APOLLO_API_KEY empty): returns realistic, role-tailored candidates.
-Prod mode (APOLLO_API_KEY set):   calls Apollo.io People Search API with progressive search broadening.
+Prod mode (APOLLO_API_KEY set): calls Apollo.io People Search API with progressive search broadening.
+If key is missing or search returns 0 matches, returns empty list with clear logging (no synthetic mock profiles).
 
-Apollo endpoint: POST https://api.apollo.io/v1/mixed_people/search
+Apollo endpoint: POST https://api.apollo.io/v1/mixed_people/api_search
 Docs: https://apolloio.github.io/apollo-api-docs/
 """
 
@@ -14,7 +14,7 @@ import httpx
 from loguru import logger
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_not_exception_type
 from models.schemas import JDSearchSpec, LegacyCandidateProfile
-from services.apollo_search_planner import ApolloSearchPlanner, clean_geo_locations_for_apollo
+from services.apollo_search_planner import ApolloSearchPlanner
 from config import get_settings
 
 settings = get_settings()
@@ -53,7 +53,7 @@ def get_apollo_auth() -> tuple[dict, bool]:
 
 
 def _to_candidate_profile(raw: dict) -> LegacyCandidateProfile:
-    """Convert a raw dict (mock or Apollo) to CandidateProfile."""
+    """Convert a raw dict from Apollo to LegacyCandidateProfile."""
     return LegacyCandidateProfile(
         linkedin_url=raw.get("linkedin_url", ""),
         full_name=raw.get("full_name", "Unknown"),
@@ -109,104 +109,6 @@ def _get_search_keyword(skills: list[str]) -> str:
     return tech_skills[0] if tech_skills else (skills[0] if skills else "")
 
 
-def _get_mock_candidates(spec: JDSearchSpec | None = None, max_results: int = 25) -> list[LegacyCandidateProfile]:
-    """
-    Return realistic, role-tailored candidate profiles for POC/Demo mode or fallback.
-    Adapts dynamically to the supplied JDSearchSpec job titles, skills, and target territory.
-    """
-    primary_title = "Software Engineer"
-    if spec:
-        if spec.primary_titles:
-            primary_title = spec.primary_titles[0]
-        elif spec.role_name:
-            primary_title = spec.role_name
-            
-    req_skills = spec.required_skills if (spec and spec.required_skills) else ["Problem Solving", "Architecture", "Git"]
-    target_cos = spec.target_companies if (spec and spec.target_companies) else ["TechCorp", "InnovateLabs", "CloudScale", "DevVenture"]
-    
-    # Resolve location
-    geo = "Remote"
-    if spec and spec.geo_keywords:
-        geo_clean = clean_geo_locations_for_apollo(spec.geo_keywords)
-        if geo_clean:
-            geo = geo_clean[0]
-        elif "remote" in [g.lower() for g in spec.geo_keywords]:
-            geo = "Remote"
-    elif spec and spec.target_territory:
-        geo = spec.target_territory
-
-    templates = [
-        {
-            "first_name": "Sarah", "last_name": "Johnson", "years": 5.5,
-            "title_mod": f"Senior {primary_title}", "company": target_cos[0] if len(target_cos) > 0 else "Stripe",
-            "loc_offset": "Austin, TX, USA" if geo in ("Remote", "") else geo, "open": True
-        },
-        {
-            "first_name": "Priya", "last_name": "Sharma", "years": 4.0,
-            "title_mod": primary_title, "company": target_cos[1] if len(target_cos) > 1 else "Google",
-            "loc_offset": "London, UK" if geo in ("Remote", "") else geo, "open": True
-        },
-        {
-            "first_name": "Alex", "last_name": "Rivera", "years": 6.0,
-            "title_mod": f"Lead {primary_title}", "company": target_cos[2] if len(target_cos) > 2 else "Microsoft",
-            "loc_offset": "San Francisco, CA, USA" if geo in ("Remote", "") else geo, "open": False
-        },
-        {
-            "first_name": "Michael", "last_name": "Chen", "years": 3.5,
-            "title_mod": primary_title, "company": target_cos[3] if len(target_cos) > 3 else "Amazon",
-            "loc_offset": "Toronto, Canada" if geo in ("Remote", "") else geo, "open": True
-        },
-        {
-            "first_name": "Elena", "last_name": "Rostova", "years": 7.0,
-            "title_mod": f"Principal {primary_title}", "company": target_cos[0] if len(target_cos) > 0 else "Datadog",
-            "loc_offset": "Berlin, Germany" if geo in ("Remote", "") else geo, "open": True
-        },
-    ]
-
-    profiles = []
-    for idx, item in enumerate(templates[:max_results]):
-        full_name = f"{item['first_name']} {item['last_name']}"
-        slug = f"{item['first_name'].lower()}-{item['last_name'].lower()}-{idx+1}"
-        
-        mock_raw = {
-            "id": f"mock-{idx+1}",
-            "first_name": item["first_name"],
-            "last_name": item["last_name"],
-            "name": full_name,
-            "headline": f"{item['title_mod']} at {item['company']} | {', '.join(req_skills[:3])}",
-            "title": item["title_mod"],
-            "organization_name": item["company"],
-            "city": item["loc_offset"].split(",")[0].strip(),
-            "state": item["loc_offset"].split(",")[1].strip() if len(item["loc_offset"].split(",")) > 1 else "",
-            "country": item["loc_offset"].split(",")[-1].strip() if len(item["loc_offset"].split(",")) > 2 else item["loc_offset"],
-            "skills": [{"name": s} for s in req_skills[:6]],
-            "is_likely_to_engage": item["open"],
-            "email": f"{item['first_name'].lower()}.{item['last_name'][0].lower()}@sample-recruit.com",
-            "linkedin_url": f"https://linkedin.com/in/{slug}",
-            "employment_history": [
-                {"title": item["title_mod"], "organization_name": item["company"], "start_date": "2021-01", "is_current": True}
-            ]
-        }
-
-        profiles.append(LegacyCandidateProfile(
-            linkedin_url=mock_raw["linkedin_url"],
-            full_name=full_name,
-            headline=mock_raw["headline"],
-            current_company=item["company"],
-            current_title=item["title_mod"],
-            location=item["loc_offset"],
-            years_experience=item["years"],
-            skills=req_skills[:6],
-            is_open_to_work=item["open"],
-            email=mock_raw["email"],
-            phone=None,
-            source="mock",
-            raw_data=mock_raw,
-        ))
-        
-    return profiles
-
-
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=2, max=10),
@@ -215,12 +117,12 @@ def _get_mock_candidates(spec: JDSearchSpec | None = None, max_results: int = 25
 async def apollo_search(spec: JDSearchSpec, max_results: int = 25) -> list[LegacyCandidateProfile]:
     """
     Search Apollo.io People API with multi-tier progressive query relaxation.
-    Returns dynamic role-tailored mock candidates if APOLLO_API_KEY is not configured or if Apollo yields 0 results.
+    Returns real candidate profiles or an empty list if no results are found.
     """
     headers, is_prod = get_apollo_auth()
     if not is_prod:
-        logger.info(f"APOLLO_API_KEY not set — using realistic mock candidates tailored to '{spec.role_name or 'role'}'")
-        return _get_mock_candidates(spec, max_results)
+        logger.warning("APOLLO_API_KEY is not configured — returning 0 candidates. Configure APOLLO_API_KEY in .env to enable real sourcing.")
+        return []
 
     planner = ApolloSearchPlanner()
     people = []
@@ -278,10 +180,9 @@ async def apollo_search(spec: JDSearchSpec, max_results: int = 25) -> list[Legac
             if broadening_level == 2:
                 break
 
-    # If Apollo still returned 0 candidates after all broadening levels, fallback to dynamic mock candidates
     if not people:
-        logger.warning(f"Apollo search returned 0 candidates across all broadening levels — providing calibrated candidates for '{spec.role_name or 'role'}'")
-        return _get_mock_candidates(spec, max_results)
+        logger.info(f"Apollo search returned 0 candidates for role '{spec.role_name or (spec.primary_titles[0] if spec.primary_titles else 'specified role')}'.")
+        return []
 
     profiles = []
     for person in people:
@@ -330,10 +231,9 @@ async def apollo_search(spec: JDSearchSpec, max_results: int = 25) -> list[Legac
 
 async def get_candidates(spec: JDSearchSpec, max_results: int = 25) -> tuple[list[LegacyCandidateProfile], str]:
     """
-    Main entry point: returns candidates + data source label.
-    Supports both real Apollo search and realistic mock fallback.
+    Main entry point: returns real candidates + data source label.
     """
     headers, is_prod = get_apollo_auth()
     profiles = await apollo_search(spec, max_results)
-    source_label = "apollo" if (is_prod and any(p.source == "apollo" for p in profiles)) else "mock"
+    source_label = "apollo" if (is_prod and any(p.source == "apollo" for p in profiles)) else ("apollo" if is_prod else "none")
     return profiles, source_label

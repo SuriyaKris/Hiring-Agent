@@ -44,6 +44,8 @@ def extract_backup_titles(jd_text: str) -> list[str]:
         "site reliability engineer", "cloud architect", "data engineer", "data scientist",
         "machine learning engineer", "ai engineer", "solutions architect", "security engineer",
         "mobile developer", "ios developer", "android developer", "qa engineer",
+        "python developer", "java developer", "react developer", "node developer",
+        "golang developer", "ruby developer", "c++ developer", "embedded engineer",
         # Product & Design
         "product manager", "product designer", "ui ux designer", "ux designer", "ui designer",
         "technical program manager", "project manager", "scrum master",
@@ -95,21 +97,89 @@ def extract_backup_persona(jd_text: str) -> str:
 
 def extract_backup_territory(jd_text: str) -> str:
     """
-    Attempt to find explicit region or country names in JD text as a fallback.
-    Returns 'Remote' if remote is stated, or the matched country/city, or empty string if none.
+    Find explicit location/city/country in JD text preserving city-level precision.
+    Returns specific city/country (e.g., 'Bangalore, India', 'London, UK') or 'Remote', or empty string.
     """
     if not jd_text:
         return ""
-        
+
+    # 1. Check explicit Location header in JD
+    location_patterns = [
+        r'(?:location|job\s*location|based\s*in|office\s*location|work\s*location)\s*[:\-–]\s*([^\n\r]+)',
+    ]
+    for pattern in location_patterns:
+        match = re.search(pattern, jd_text, re.IGNORECASE)
+        if match:
+            loc_val = match.group(1).strip()
+            # Clean common parentheticals like "(Hybrid)", "(Onsite)", "(Preferred)"
+            loc_val = re.sub(r'\s*\([^)]*\)', '', loc_val).strip()
+            if loc_val and len(loc_val) < 80:
+                # If remote is explicitly in the location line
+                if "remote" in loc_val.lower() or "anywhere" in loc_val.lower() or "wfh" in loc_val.lower():
+                    # Check if region-specific remote
+                    for region, config in REGION_MAP.items():
+                        if any(name in loc_val.lower() for name in config["names"]) or region in loc_val.lower():
+                            return f"{region.title()} (Remote)"
+                    return "Remote"
+                return loc_val
+
     jd_clean = clean_text(jd_text)
-    
-    # Check regions in region map
+
+    # 2. Check specific city names first to preserve city precision
     for region, config in REGION_MAP.items():
-        if region in jd_clean or any(name in jd_clean for name in config["names"]):
+        for name in config["names"]:
+            # If a specific city / sub-region is found (not just the broad country name)
+            if name != region and name in jd_clean:
+                # e.g., 'bangalore' -> 'Bangalore, India'
+                city_name = name.title()
+                country_name = region.title()
+                if country_name.lower() in ("united states", "united kingdom", "india", "canada", "australia", "germany", "france"):
+                    return f"{city_name}, {country_name}"
+                return city_name
+
+    # 3. Check country / broad region names
+    for region, config in REGION_MAP.items():
+        if region in jd_clean:
             return region.title()
-            
-    # Check if remote
+
+    # 4. Check if remote
     if "remote" in jd_clean or "work from home" in jd_clean or "anywhere" in jd_clean:
         return "Remote"
-        
+
     return ""
+
+
+def extract_backup_geo_keywords(jd_text: str) -> list[str]:
+    """
+    Extract a comprehensive list of geographic search keywords (city, alternate names, country).
+    """
+    if not jd_text:
+        return []
+
+    jd_clean = clean_text(jd_text)
+    keywords = []
+
+    # Check for known city/country names in taxonomy
+    for region, config in REGION_MAP.items():
+        matched_region = False
+        for name in config["names"]:
+            if name in jd_clean:
+                keywords.append(name.title())
+                matched_region = True
+        if matched_region or region in jd_clean:
+            if region.title() not in keywords:
+                keywords.append(region.title())
+
+    # Add synonyms for major tech hubs
+    if any(k.lower() in ("bangalore", "bengaluru") for k in keywords):
+        if "Bangalore" not in keywords:
+            keywords.insert(0, "Bangalore")
+        if "Bengaluru" not in keywords:
+            keywords.insert(1, "Bengaluru")
+        if "India" not in keywords:
+            keywords.append("India")
+
+    if not keywords and ("remote" in jd_clean or "anywhere" in jd_clean):
+        keywords = ["Remote"]
+
+    return list(dict.fromkeys(keywords))

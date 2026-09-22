@@ -82,5 +82,16 @@ def test_backup_extraction_utilities():
     Position: Lead Product Designer
     Location: London, United Kingdom
     """
-    assert extract_backup_territory(uk_jd) in ("United Kingdom", "London")
+    assert "London" in extract_backup_territory(uk_jd)
     assert "Product Designer" in extract_backup_titles(uk_jd)
+
+    bangalore_jd = """
+    Role: Python Developer
+    Location: Bangalore, Karnataka, India
+    Skills: Python, FastAPI, Django
+    """
+    assert "Bangalore" in extract_backup_territory(bangalore_jd)
+    from nlp.keyword_extractor import extract_backup_geo_keywords
+    geo_kw = extract_backup_geo_keywords(bangalore_jd)
+    assert "Bangalore" in geo_kw or "Bengaluru" in geo_kw
+    assert "India" in geo_kw
