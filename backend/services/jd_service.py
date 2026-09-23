@@ -10,6 +10,8 @@ from services.llm_service import complete_json
 from loguru import logger
 from nlp.keyword_extractor import (
     extract_backup_titles,
+    extract_backup_skills,
+    extract_backup_technologies,
     extract_backup_persona,
     extract_backup_territory,
     extract_backup_geo_keywords,
@@ -32,7 +34,6 @@ def merge_role_name_into_titles(role_name: str | None, parsed_titles: list[str])
         return parsed_titles
     existing_lower = {t.lower().strip() for t in parsed_titles}
     if role_name_clean.lower() not in existing_lower:
-        # If parsed_titles already has specific titles from JD, append role_name rather than overriding first
         if parsed_titles:
             return parsed_titles + [role_name_clean]
         return [role_name_clean]
@@ -45,7 +46,7 @@ async def parse_jd(jd_text: str, role_name: str = "") -> JDSearchSpec:
     Extracts canonical titles, deep skills, and accurate city/country locations.
     """
     system_prompt = _load_prompt()
-    role_hint = f"Role name hint: {role_name}\n\n" if (role_name and role_name.strip()) else ""
+    role_hint = f"Explicit Role Name provided by recruiter: '{role_name.strip()}'\n\n" if (role_name and role_name.strip()) else ""
     user_message = f"{role_hint}Job Description:\n{jd_text}\n\nReturn the search specification JSON now."
 
     logger.info(f"Parsing JD for role: '{role_name or 'Auto-Detect'}'")
@@ -59,7 +60,9 @@ async def parse_jd(jd_text: str, role_name: str = "") -> JDSearchSpec:
         )
     except Exception as e:
         logger.warning(f"LLM parsing failed ({e}). Constructing heuristic search spec fallback.")
-        fallback_titles = extract_backup_titles(jd_text) or ([role_name.strip()] if role_name and role_name.strip() else ["Software Engineer"])
+        fallback_titles = extract_backup_titles(jd_text, role_name=role_name) or ([role_name.strip()] if role_name and role_name.strip() else ["Software Engineer"])
+        fallback_skills = extract_backup_skills(jd_text)
+        fallback_tech = extract_backup_technologies(jd_text)
         fallback_persona = extract_backup_persona(jd_text)
         fallback_territory = extract_backup_territory(jd_text)
         fallback_geo = extract_backup_geo_keywords(jd_text)
@@ -69,7 +72,7 @@ async def parse_jd(jd_text: str, role_name: str = "") -> JDSearchSpec:
         data = {
             "primary_titles": fallback_titles,
             "related_titles": [f"Senior {t}" for t in fallback_titles[:2]] + [f"Lead {t}" for t in fallback_titles[:1]],
-            "required_skills": fallback_titles[:3],
+            "required_skills": fallback_skills if fallback_skills else ([f"{t} Domain Expertise" for t in fallback_titles[:2]] if fallback_titles else ["Relevant Experience"]),
             "nice_to_have_skills": [],
             "target_companies": [],
             "excluded_companies": ["Staffing", "Recruiting Agency", "Temp Agency"],
@@ -82,15 +85,24 @@ async def parse_jd(jd_text: str, role_name: str = "") -> JDSearchSpec:
             "target_persona": fallback_persona,
             "target_territory": fallback_territory,
             "jd_requirements_text": jd_text,
-            "currently_using_technology_uids": [],
+            "currently_using_technology_uids": fallback_tech,
         }
 
     # Ensure critical fields are properly populated
     if not data.get("primary_titles"):
-        data["primary_titles"] = extract_backup_titles(jd_text) or ([role_name.strip()] if role_name and role_name.strip() else ["Software Engineer"])
+        data["primary_titles"] = extract_backup_titles(jd_text, role_name=role_name) or ([role_name.strip()] if role_name and role_name.strip() else ["Software Engineer"])
+
+    # If role_name was explicitly passed, ensure it is in primary_titles and target_titles
+    if role_name and role_name.strip():
+        data["primary_titles"] = merge_role_name_into_titles(role_name, data.get("primary_titles", []))
 
     if not data.get("target_titles"):
         data["target_titles"] = list(data.get("primary_titles", []))
+    elif role_name and role_name.strip() and role_name.strip().lower() not in [t.lower() for t in data["target_titles"]]:
+        data["target_titles"] = [role_name.strip()] + data["target_titles"]
+
+    if not data.get("required_skills"):
+        data["required_skills"] = extract_backup_skills(jd_text)
 
     if not data.get("target_persona"):
         data["target_persona"] = extract_backup_persona(jd_text)
@@ -106,10 +118,10 @@ async def parse_jd(jd_text: str, role_name: str = "") -> JDSearchSpec:
     if "jd_requirements_text" not in data or not data["jd_requirements_text"]:
         data["jd_requirements_text"] = jd_text
 
-    # Canonical role name resolution
+    # Canonical role name resolution (prefer user's explicit role_name)
     resolved_role = (
-        data.get("primary_titles", [None])[0]
-        or role_name
+        (role_name.strip() if role_name and role_name.strip() else None)
+        or data.get("primary_titles", [None])[0]
         or "Software Engineer"
     )
     data["role_name"] = resolved_role

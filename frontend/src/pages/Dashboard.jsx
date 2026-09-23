@@ -219,6 +219,8 @@ export default function Dashboard({ onNavigateToOutreach, onNavigateToPipeline }
       {view === 'candidates' && selectedSession && (
         <Candidates
           sessionId={selectedSession.session_id}
+          roleName={selectedRole?.role_name}
+          onClearSessionFilter={handleBack}
           onGenerateOutreach={onNavigateToOutreach}
         />
       )}

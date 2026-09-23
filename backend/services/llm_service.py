@@ -218,18 +218,35 @@ async def complete_json(
     full_system = system_prompt + json_instruction
 
     if provider in ("openai", "gemini"):
-        client   = _openai_client() if provider == "openai" else _gemini_client()
-        response = await client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": full_system},
-                {"role": "user",   "content": user_message},
-            ],
-            temperature=temperature,
-            max_tokens=max_tokens,
-            response_format={"type": "json_object"},  # Enforce JSON
-        )
-        raw = response.choices[0].message.content
+        client = _openai_client() if provider == "openai" else _gemini_client()
+        candidate_models = [model]
+        if provider == "gemini":
+            for alt in ["gemini-flash-latest", "gemini-3.5-flash-lite", "gemini-3.6-flash"]:
+                if alt != model and alt not in candidate_models:
+                    candidate_models.append(alt)
+        
+        last_err = None
+        raw = None
+        for cur_model in candidate_models:
+            try:
+                response = await client.chat.completions.create(
+                    model=cur_model,
+                    messages=[
+                        {"role": "system", "content": full_system},
+                        {"role": "user",   "content": user_message},
+                    ],
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    response_format={"type": "json_object"},  # Enforce JSON
+                )
+                raw = response.choices[0].message.content
+                break
+            except Exception as ex:
+                last_err = ex
+                logger.warning(f"Model {cur_model} failed ({ex}). Trying next candidate...")
+                continue
+        if raw is None and last_err:
+            raise last_err
 
     elif provider == "groq":
         client = _groq_client()

@@ -20,6 +20,7 @@ export default function App() {
   const [tab, setTab] = useState('dashboard')
   const [status, setStatus] = useState(null)
   const [selectedCandidate, setSelectedCandidate] = useState(null)
+  const [activeSessionFilter, setActiveSessionFilter] = useState(null)
 
   // Configure axios auth header on mount or token change
   useEffect(() => {
@@ -55,12 +56,37 @@ export default function App() {
     setToken(null)
     setUser(null)
     setTab('dashboard')
+    setActiveSessionFilter(null)
     axios.post('/api/auth/logout').catch(() => {})
   }
 
   const goToOutreach = (candidate) => {
     setSelectedCandidate(candidate)
     setTab('outreach')
+  }
+
+  const [pipelineCandidates, setPipelineCandidates] = useState(null)
+
+  const handlePipelineCandidatesReady = (sessionInfo) => {
+    if (sessionInfo && sessionInfo.sessionId) {
+      setActiveSessionFilter({
+        sessionId: sessionInfo.sessionId,
+        roleName: sessionInfo.roleName || ''
+      })
+      setPipelineCandidates(sessionInfo.candidates || null)
+    } else {
+      setActiveSessionFilter(null)
+      setPipelineCandidates(null)
+    }
+    setTab('candidates')
+  }
+
+  const handleSidebarSelectTab = (tabId) => {
+    if (tabId === 'candidates') {
+      setActiveSessionFilter(null)
+      setPipelineCandidates(null)
+    }
+    setTab(tabId)
   }
 
   // Intercept Axios errors for 401 and redirect to logout/auth
@@ -138,7 +164,7 @@ export default function App() {
                   return (
                     <button
                       key={t.id}
-                      onClick={() => setTab(t.id)}
+                      onClick={() => handleSidebarSelectTab(t.id)}
                       className={`w-full flex items-center gap-3.5 px-4.5 py-3 rounded-xl text-xs font-bold transition-all outline-none hover:scale-[1.01] ${
                         isActive
                           ? 'bg-[#eef2f6] text-slate-800 border-l-[3px] border-blue-600 rounded-l-none'
@@ -213,8 +239,19 @@ export default function App() {
                   onNavigateToPipeline={() => setTab('pipeline')}
                 />
               )}
-              {tab === 'pipeline' && <Pipeline onCandidatesReady={() => setTab('candidates')} />}
-              {tab === 'candidates' && <Candidates onGenerateOutreach={goToOutreach} />}
+              {tab === 'pipeline' && <Pipeline onCandidatesReady={handlePipelineCandidatesReady} />}
+              {tab === 'candidates' && (
+                <Candidates
+                  sessionId={activeSessionFilter?.sessionId}
+                  roleName={activeSessionFilter?.roleName}
+                  initialCandidates={pipelineCandidates}
+                  onClearSessionFilter={() => {
+                    setActiveSessionFilter(null)
+                    setPipelineCandidates(null)
+                  }}
+                  onGenerateOutreach={goToOutreach}
+                />
+              )}
               {tab === 'outreach' && <Outreach candidate={selectedCandidate} />}
             </main>
           </div>

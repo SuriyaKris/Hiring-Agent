@@ -393,4 +393,5 @@ async def run_pipeline(
         data_source="apollo",
         total_sourced=len(scored),
         run_id=run_id,
+        role_name=role_name,
     )

@@ -39,8 +39,8 @@ class Settings(BaseSettings):
 
     # Gemini — Google AI Studio (free & high rate limit)
     gemini_api_key: str = ""
-    gemini_fast_model: str = "gemini-3.6-flash"
-    gemini_smart_model: str = "gemini-3.6-flash"
+    gemini_fast_model: str = "gemini-3.5-flash-lite"
+    gemini_smart_model: str = "gemini-3.5-flash-lite"
 
     # Data sources
     apollo_api_key: str = ""            # blank = use mock data

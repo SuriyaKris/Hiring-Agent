@@ -99,9 +99,11 @@ export default function Pipeline({ onCandidatesReady }) {
       if (!data.geo_keywords) data.geo_keywords = []
       if (!data.seniority_levels) data.seniority_levels = []
 
-      // Auto-populate role name from extracted title if empty or default
-      if (data.role_name || (data.primary_titles && data.primary_titles.length > 0)) {
-        setRoleName(data.role_name || data.primary_titles[0])
+      // Auto-populate role name from extracted title only if roleName is empty
+      if (!roleName.trim()) {
+        if (data.role_name || (data.primary_titles && data.primary_titles.length > 0)) {
+          setRoleName(data.role_name || data.primary_titles[0])
+        }
       }
 
       setSpec(data)
@@ -536,7 +538,14 @@ export default function Pipeline({ onCandidatesReady }) {
             ) : (
               <p className="text-xs text-slate-400 italic py-2">No candidate profiles were returned for this search.</p>
             )}
-            <button onClick={onCandidatesReady} className="block text-xs text-[#0B57D0] hover:text-[#0842a0] font-bold outline-none">
+            <button 
+              onClick={() => onCandidatesReady?.({
+                sessionId: result.run_id,
+                roleName: result.role_name || spec?.primary_titles?.[0] || roleName || 'Search Run',
+                candidates: result.candidates || [],
+              })} 
+              className="block text-xs text-[#0B57D0] hover:text-[#0842a0] font-bold outline-none cursor-pointer transition-colors"
+            >
               See all {result.total_sourced} candidates →
             </button>
           </div>

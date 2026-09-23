@@ -83,12 +83,28 @@ async def run_full_pipeline(
             spec_embedding=spec_vector,
         ))
 
-        # Store candidate details in SQLite database
+        # Store candidate details in SQLite database scoped to this search session
         for c in result.candidates:
-            existing = await db.execute(
-                select(CandidateRecord).where(CandidateRecord.linkedin_url == c.profile.basic_info.linkedin_url)
-            )
-            existing_row = existing.scalar_one_or_none()
+            linkedin = (c.profile.basic_info.linkedin_url or "").strip()
+            apollo_id = c.profile.metadata.apollo_person_id
+
+            existing_row = None
+            if linkedin:
+                existing = await db.execute(
+                    select(CandidateRecord).where(
+                        CandidateRecord.search_session_id == result.run_id,
+                        CandidateRecord.linkedin_url == linkedin
+                    )
+                )
+                existing_row = existing.scalar_one_or_none()
+            elif apollo_id:
+                existing = await db.execute(
+                    select(CandidateRecord).where(
+                        CandidateRecord.search_session_id == result.run_id,
+                        CandidateRecord.apollo_person_id == apollo_id
+                    )
+                )
+                existing_row = existing.scalar_one_or_none()
             
             current_job = c.profile.experience[0] if c.profile.experience else None
             current_title = current_job.title if current_job else (c.profile.basic_info.headline or "")
@@ -118,7 +134,7 @@ async def run_full_pipeline(
             else:
                 # Add new candidate record
                 db.add(CandidateRecord(
-                    linkedin_url=c.profile.basic_info.linkedin_url or "",
+                    linkedin_url=linkedin,
                     full_name=c.profile.basic_info.full_name or "Unknown",
                     headline=c.profile.basic_info.headline or "",
                     current_company=current_company,

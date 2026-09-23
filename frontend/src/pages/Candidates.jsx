@@ -9,9 +9,79 @@ const VERDICT_COLORS = {
   pending: 'bg-slate-50 text-slate-500 border-slate-200',
 }
 
-export default function Candidates({ onGenerateOutreach, sessionId }) {
-  const [candidates, setCandidates] = useState([])
-  const [loading, setLoading] = useState(true)
+function normalizeCandidate(c, defaultRole = '') {
+  if (!c) return null
+  const profile = c.profile || c.profile_details || {}
+  const basic = profile.basic_info || {}
+  const expList = profile.experience || []
+  const currentExp = expList[0] || {}
+
+  const fullName = c.full_name || basic.full_name || 'Unknown'
+  const currentTitle = c.current_title || currentExp.title || basic.headline || ''
+  const currentCompany = c.current_company || currentExp.company_name || profile.company?.name || ''
+  const location = c.location || basic.location || ''
+  const linkedinUrl = c.linkedin_url || basic.linkedin_url || ''
+  const email = c.email || basic.email || ''
+  const phone = c.phone || basic.phone || ''
+  const isOpen = c.is_open_to_work ?? (profile.metadata?.raw_data?.is_open_to_work || false)
+  const score = c.fitment_score ?? 0
+  const scoreReasoning = c.score_reasoning || ''
+  const scoreBreakdown = c.score_breakdown || {}
+  const recommendedAction = c.recommended_action || (score >= 75 ? 'Reach out now' : score >= 50 ? 'Consider' : 'Skip')
+  const role = c.role_name || defaultRole || ''
+  const verdict = c.recruiter_verdict || 'pending'
+
+  return {
+    ...c,
+    id: c.id || linkedinUrl || fullName,
+    full_name: fullName,
+    current_title: currentTitle,
+    current_company: currentCompany,
+    location: location,
+    linkedin_url: linkedinUrl,
+    email: email,
+    phone: phone,
+    is_open_to_work: isOpen,
+    fitment_score: score,
+    score_reasoning: scoreReasoning,
+    score_breakdown: scoreBreakdown,
+    recommended_action: recommendedAction,
+    role_name: role,
+    recruiter_verdict: verdict,
+    profile_details: {
+      ...profile,
+      basic_info: {
+        ...basic,
+        full_name: fullName,
+        linkedin_url: linkedinUrl,
+        email: email,
+        phone: phone,
+        location: location,
+        headline: basic.headline || currentTitle,
+      },
+      experience: expList,
+      skills: profile.skills || [],
+      education: profile.education || [],
+      certifications: profile.certifications || [],
+      awards: profile.awards || [],
+    }
+  }
+}
+
+export default function Candidates({
+  onGenerateOutreach,
+  sessionId,
+  roleName,
+  initialCandidates,
+  onClearSessionFilter
+}) {
+  const [candidates, setCandidates] = useState(() => {
+    if (initialCandidates && initialCandidates.length > 0) {
+      return initialCandidates.map(c => normalizeCandidate(c, roleName))
+    }
+    return []
+  })
+  const [loading, setLoading] = useState(!initialCandidates || initialCandidates.length === 0)
   const [filter, setFilter] = useState('all')
   const [roleFilter, setRoleFilter] = useState('all')
   const [search, setSearch] = useState('')
@@ -22,70 +92,54 @@ export default function Candidates({ onGenerateOutreach, sessionId }) {
   const [queueModalOpen, setQueueModalOpen] = useState(false)
   const [queueList, setQueueList] = useState([])
   const [queueIndex, setQueueIndex] = useState(0)
+  const [activeSessionId, setActiveSessionId] = useState(sessionId || null)
 
-  const startBulkOutreachQueue = () => {
-    const shortlisted = candidates.filter(c => c.recruiter_verdict === 'shortlist')
-    if (shortlisted.length === 0) {
-      toast.error('No shortlisted candidates found. Mark candidates as "Shortlist" first.')
-      return
-    }
-
-    const withEmail = shortlisted.filter(c => c.email && c.email.trim())
-    if (withEmail.length === 0) {
-      toast.error('None of the shortlisted candidates have a valid email address.')
-      return
-    }
-
-    setQueueList(withEmail)
-    setQueueIndex(0)
-    setQueueModalOpen(true)
-  }
-
-  const processQueueNext = async () => {
-    if (queueIndex >= queueList.length) return
-    const curr = queueList[queueIndex]
-    
-    const roleName = curr.role_name || curr.current_title || 'Software Engineer'
-    const companyName = '4CECloud Labs'
-    const recruiterName = 'Meghana'
-    const subject = `Exciting Career Opportunity: ${roleName} role at ${companyName}`
-    const body = `Hi ${curr.full_name},\n\nI hope this email finds you well.\n\nI’m ${recruiterName}, a recruiter at ${companyName}. I came across your profile and was very impressed by your background as ${curr.current_title} at ${curr.current_company}.\n\nWe are currently expanding our team and looking for a driven professional to fill our ${roleName} role.\n\nWould you be open to a brief introductory call next week to discuss this opportunity further?\n\nBest regards,\n\n${recruiterName}\n${companyName}`
-
-    const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(curr.email)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
-    window.open(gmailUrl, '_blank')
-
-    try {
-      await axios.post('/api/outreach/save', {
-        candidate_linkedin_url: curr.linkedin_url || '',
-        candidate_name: curr.full_name,
-        role_name: roleName,
-        channel: 'email',
-        message_sent: body,
-      })
-    } catch {}
-
-    if (queueIndex + 1 < queueList.length) {
-      setQueueIndex(prev => prev + 1)
-      toast.success(`Opened email for ${curr.full_name}. Next candidate ready.`)
+  useEffect(() => {
+    if (initialCandidates && initialCandidates.length > 0) {
+      setCandidates(initialCandidates.map(c => normalizeCandidate(c, roleName)))
+      setLoading(false)
+      setActiveSessionId(sessionId || null)
     } else {
-      toast.success('Completed outreach queue for all shortlisted candidates!')
-      setQueueModalOpen(false)
+      setActiveSessionId(sessionId || null)
     }
-  }
+  }, [sessionId, initialCandidates, roleName])
 
   const load = async () => {
+    // If initialCandidates is active for this session, avoid overriding with global fetch
+    if (initialCandidates && initialCandidates.length > 0 && activeSessionId === sessionId) {
+      return
+    }
     try {
       setLoading(true)
-      const url = sessionId
-        ? `/api/me/sessions/${sessionId}/candidates`
+      const url = activeSessionId
+        ? `/api/candidates?session_id=${encodeURIComponent(activeSessionId)}`
         : '/api/candidates'
       const { data } = await axios.get(url)
-      setCandidates(data)
+      setCandidates(data.map(c => normalizeCandidate(c, roleName)))
     } catch { toast.error('Failed to load candidates.') }
     finally { setLoading(false) }
   }
 
-  useEffect(() => { load() }, [sessionId])
+  useEffect(() => {
+    if (!initialCandidates || initialCandidates.length === 0 || activeSessionId !== sessionId) {
+      load()
+    }
+  }, [activeSessionId])
+
+  const handleExport = () => {
+    let exportUrl = '/api/candidates/export'
+    const params = new URLSearchParams()
+    if (activeSessionId) {
+      params.append('session_id', activeSessionId)
+    } else if (roleFilter && roleFilter !== 'all') {
+      params.append('role_name', roleFilter)
+    }
+    const queryString = params.toString()
+    if (queryString) {
+      exportUrl += `?${queryString}`
+    }
+    window.open(exportUrl, '_blank')
+  }
 
   const setVerdict = async (linkedinUrl, verdict) => {
     try {
@@ -155,6 +209,39 @@ export default function Candidates({ onGenerateOutreach, sessionId }) {
 
   return (
     <div className="space-y-5 select-none animate-fade-in-up">
+      {/* Active Session Context Banner */}
+      {activeSessionId && (
+        <div className="bg-gradient-to-r from-blue-50/90 via-indigo-50/40 to-slate-50 border border-blue-200 rounded-2xl p-4.5 flex items-center justify-between shadow-sm animate-fade-in">
+          <div className="flex items-center gap-3.5">
+            <div className="w-10 h-10 rounded-xl bg-[#0B57D0] text-white flex items-center justify-center font-extrabold text-base shadow-sm">
+              ⚡
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-extrabold uppercase tracking-wider bg-blue-100/80 text-[#0B57D0] px-2.5 py-0.5 rounded-lg border border-blue-200">
+                  Search Session View
+                </span>
+                <h3 className="text-[15px] font-bold text-slate-800 leading-tight">
+                  {roleName || candidates[0]?.role_name || 'Active Search Run'}
+                </h3>
+              </div>
+              <p className="text-xs text-slate-500 font-medium mt-1">
+                Showing {filtered.length} candidates isolated to this specific search session and sourcing criteria.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => {
+              setActiveSessionId(null);
+              onClearSessionFilter?.();
+            }}
+            className="bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900 px-4 py-2 rounded-xl text-xs font-bold transition-all border border-slate-200 shadow-sm flex items-center gap-2 outline-none cursor-pointer active:scale-95"
+          >
+            <span>✕</span> View All Candidates Database
+          </button>
+        </div>
+      )}
+
       {/* Controls row */}
       <div className="flex items-center gap-3">
         <input 
@@ -201,8 +288,8 @@ export default function Candidates({ onGenerateOutreach, sessionId }) {
           ✉️ Send to Shortlisted ({candidates.filter(c => c.recruiter_verdict === 'shortlist').length})
         </button>
         <button 
-          onClick={() => window.open('/api/candidates/export', '_blank')} 
-          className="bg-[#0B57D0] hover:bg-[#0842a0] text-white px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm outline-none"
+          onClick={handleExport} 
+          className="bg-[#0B57D0] hover:bg-[#0842a0] text-white px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm outline-none cursor-pointer"
           title="Export to Excel"
         >
           📥 Export

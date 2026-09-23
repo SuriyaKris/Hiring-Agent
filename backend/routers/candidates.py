@@ -27,7 +27,8 @@ async def enrich_candidate(request: EnrichRequest, db: AsyncSession = Depends(ge
             .where(CandidateRecord.linkedin_url == request.candidate_linkedin_url)
             .where(SearchSessionRecord.user_id == current_user.id)
         )
-        row = result.scalar_one_or_none()
+        rows = result.scalars().all()
+        row = rows[0] if rows else None
         
         # Build profile wrapper
         from schemas.candidate_profile import BasicInfo, SchemaMetadata
@@ -65,12 +66,13 @@ async def enrich_candidate(request: EnrichRequest, db: AsyncSession = Depends(ge
         if await enricher.can_enrich(profile):
             profile = await enricher.enrich(profile)
 
-        # Persist updated details if record exists in database
-        if row:
-            row.full_name = profile.basic_info.full_name or row.full_name
-            row.email = profile.basic_info.email or ""
-            row.phone = profile.basic_info.phone or ""
-            row.raw_json = json.dumps(profile.model_dump(mode="json"))
+        # Persist updated details across all matching records in database
+        if rows:
+            for r in rows:
+                r.full_name = profile.basic_info.full_name or r.full_name
+                r.email = profile.basic_info.email or ""
+                r.phone = profile.basic_info.phone or ""
+                r.raw_json = json.dumps(profile.model_dump(mode="json"))
             await db.commit()
 
         return profile
@@ -237,8 +239,13 @@ def _normalize_raw_json(raw_json_str: str, source: str) -> dict:
     
     
 @router.get("/candidates")
-async def get_candidates(role_name: str | None = None, db: AsyncSession = Depends(get_db), current_user = Depends(get_current_user)):
-    """Return stored candidates sorted by score."""
+async def get_candidates(
+    role_name: str | None = None,
+    session_id: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """Return stored candidates sorted by score, optionally filtered by session_id or role_name."""
     sess_res = await db.execute(
         select(SearchSessionRecord.session_id).where(SearchSessionRecord.user_id == current_user.id)
     )
@@ -246,7 +253,10 @@ async def get_candidates(role_name: str | None = None, db: AsyncSession = Depend
 
     stmt = select(CandidateRecord).where(CandidateRecord.source != "mock")
 
-    if user_session_ids:
+    if session_id and session_id.strip() and session_id.strip().lower() != "all":
+        # Specific search session requested
+        stmt = stmt.where(CandidateRecord.search_session_id == session_id.strip())
+    elif user_session_ids:
         stmt = stmt.where(CandidateRecord.search_session_id.in_(user_session_ids))
 
     if role_name and role_name.strip() and role_name.strip().lower() != "all":
@@ -275,6 +285,7 @@ async def get_candidates(role_name: str | None = None, db: AsyncSession = Depend
             "source": r.source,
             "recruiter_verdict": r.recruiter_verdict,
             "role_name": r.role_name,
+            "search_session_id": r.search_session_id,
             "created_at": r.created_at.isoformat() if r.created_at else None,
             "profile_details": _normalize_raw_json(r.raw_json, r.source),
         }
@@ -321,10 +332,11 @@ async def update_verdict(body: VerdictUpdate, db: AsyncSession = Depends(get_db)
         .where(CandidateRecord.linkedin_url == body.candidate_linkedin_url)
         .where(SearchSessionRecord.user_id == current_user.id)
     )
-    row = result.scalar_one_or_none()
-    if not row:
+    rows = result.scalars().all()
+    if not rows:
         raise HTTPException(status_code=404, detail="Candidate not found")
-    row.recruiter_verdict = body.verdict
+    for r in rows:
+        r.recruiter_verdict = body.verdict
     await db.commit()
     return {"status": "updated", "verdict": body.verdict}
 
@@ -347,8 +359,13 @@ async def delete_candidate(candidate_id: int, db: AsyncSession = Depends(get_db)
 
 
 @router.get("/candidates/export")
-async def export_candidates(db: AsyncSession = Depends(get_db), current_user = Depends(get_current_user)):
-    """Export all candidates to an Excel sheet."""
+async def export_candidates(
+    role_name: str | None = None,
+    session_id: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """Export candidates to an Excel sheet, optionally filtered by session_id or role_name."""
     try:
         from fastapi.responses import StreamingResponse
         import io
@@ -356,12 +373,18 @@ async def export_candidates(db: AsyncSession = Depends(get_db), current_user = D
         from openpyxl.styles import Font, PatternFill
 
         # Fetch candidates ordered by fitment_score desc
-        result = await db.execute(
+        stmt = (
             select(CandidateRecord)
             .join(SearchSessionRecord, CandidateRecord.search_session_id == SearchSessionRecord.session_id)
             .where(SearchSessionRecord.user_id == current_user.id)
-            .order_by(CandidateRecord.fitment_score.desc())
         )
+        if session_id and session_id.strip() and session_id.strip().lower() != "all":
+            stmt = stmt.where(CandidateRecord.search_session_id == session_id.strip())
+        if role_name and role_name.strip() and role_name.strip().lower() != "all":
+            stmt = stmt.where(CandidateRecord.role_name == role_name.strip())
+
+        stmt = stmt.order_by(CandidateRecord.fitment_score.desc())
+        result = await db.execute(stmt)
         rows = result.scalars().all()
 
         wb = Workbook()

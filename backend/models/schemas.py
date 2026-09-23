@@ -139,6 +139,7 @@ class PipelineResult(BaseModel):
     data_source: str
     total_sourced: int
     run_id: str
+    role_name: str = ""
 
 
 # ── Dashboard / tracking ─────────────────────────────────────
