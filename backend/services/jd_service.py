@@ -107,13 +107,25 @@ async def parse_jd(jd_text: str, role_name: str = "") -> JDSearchSpec:
     if not data.get("target_persona"):
         data["target_persona"] = extract_backup_persona(jd_text)
 
+    # Location & Territory synchronization
+    if isinstance(data.get("geo_keywords"), str):
+        data["geo_keywords"] = [data["geo_keywords"]]
+    elif data.get("geo_keywords") is None:
+        data["geo_keywords"] = []
+
     if not data.get("target_territory"):
         data["target_territory"] = extract_backup_territory(jd_text)
 
-    if not data.get("geo_keywords"):
+    # If target_territory is Remote, ensure geo_keywords is clean Remote
+    if data.get("target_territory", "").strip().lower() == "remote":
+        if not data["geo_keywords"] or not any(g.lower() == "remote" for g in data["geo_keywords"]):
+            data["geo_keywords"] = ["Remote"]
+    elif not data["geo_keywords"]:
         data["geo_keywords"] = extract_backup_geo_keywords(jd_text)
-    elif isinstance(data["geo_keywords"], str):
-        data["geo_keywords"] = [data["geo_keywords"]]
+        if not data["geo_keywords"] and data.get("target_territory"):
+            data["geo_keywords"] = [data["target_territory"]]
+    elif not data.get("target_territory") and data["geo_keywords"]:
+        data["target_territory"] = ", ".join(data["geo_keywords"][:2])
 
     if "jd_requirements_text" not in data or not data["jd_requirements_text"]:
         data["jd_requirements_text"] = jd_text

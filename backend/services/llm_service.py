@@ -192,28 +192,18 @@ def _clean_json(text: str) -> str:
     return text
 
 
-@retry(
-    stop=stop_after_attempt(3),
-    wait=wait_exponential(multiplier=1, min=2, max=10),
-    retry=retry_if_not_exception_type(ValueError)
-)
-async def complete_json(
+async def _execute_provider_json(
+    provider: str,
     system_prompt: str,
     user_message: str,
     use_smart_model: bool = False,
     temperature: float = 0.1,
     max_tokens: int = 4000,
-) -> dict:
-    """
-    Call the LLM and return parsed JSON dict.
-    Handles markdown fence stripping for models that ignore json_object mode.
-    """
+) -> str:
     raw_model = settings.smart_model if use_smart_model else settings.fast_model
-    provider  = settings.llm_provider
-    model     = _resolve_model(provider, raw_model)
+    model = _resolve_model(provider, raw_model)
     logger.debug(f"LLM call | provider={provider} model={model}")
 
-    # Tell the model explicitly to return only JSON
     json_instruction = "\n\nIMPORTANT: Return ONLY valid JSON. No explanation, no markdown, no code fences."
     full_system = system_prompt + json_instruction
 
@@ -221,8 +211,8 @@ async def complete_json(
         client = _openai_client() if provider == "openai" else _gemini_client()
         candidate_models = [model]
         if provider == "gemini":
-            for alt in ["gemini-flash-latest", "gemini-3.5-flash-lite", "gemini-3.6-flash"]:
-                if alt != model and alt not in candidate_models:
+            for alt in ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-2.0-flash", "gemini-flash-latest"]:
+                if alt not in candidate_models:
                     candidate_models.append(alt)
         
         last_err = None
@@ -237,7 +227,7 @@ async def complete_json(
                     ],
                     temperature=temperature,
                     max_tokens=max_tokens,
-                    response_format={"type": "json_object"},  # Enforce JSON
+                    response_format={"type": "json_object"},
                 )
                 raw = response.choices[0].message.content
                 break
@@ -247,44 +237,100 @@ async def complete_json(
                 continue
         if raw is None and last_err:
             raise last_err
+        return raw
 
     elif provider == "groq":
         client = _groq_client()
-        # Groq supports json_object on llama-3.1 and mixtral models
-        # Use it when available, fall back on parse error
-        try:
-            response = await client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": full_system},
-                    {"role": "user",   "content": user_message},
-                ],
-                temperature=temperature,
-                max_tokens=max_tokens,
-                response_format={"type": "json_object"},
-            )
-        except Exception:
-            # Some Groq models don't support response_format — retry without it
-            response = await client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": full_system},
-                    {"role": "user",   "content": user_message},
-                ],
-                temperature=temperature,
-                max_tokens=max_tokens,
-            )
-        raw = response.choices[0].message.content
+        groq_models = [model]
+        for g_alt in [settings.groq_fast_model, "llama-3.1-8b-instant", "llama-3.3-70b-versatile"]:
+            if g_alt and g_alt not in groq_models:
+                groq_models.append(g_alt)
+
+        last_err = None
+        raw = None
+        for g_model in groq_models:
+            try:
+                try:
+                    response = await client.chat.completions.create(
+                        model=g_model,
+                        messages=[
+                            {"role": "system", "content": full_system},
+                            {"role": "user",   "content": user_message},
+                        ],
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                        response_format={"type": "json_object"},
+                    )
+                except Exception:
+                    response = await client.chat.completions.create(
+                        model=g_model,
+                        messages=[
+                            {"role": "system", "content": full_system},
+                            {"role": "user",   "content": user_message},
+                        ],
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                    )
+                raw = response.choices[0].message.content
+                break
+            except Exception as ex:
+                last_err = ex
+                logger.warning(f"Groq model {g_model} failed ({ex}). Trying next...")
+                continue
+
+        if raw is None and last_err:
+            raise last_err
+        return raw
 
     else:
-        raise ValueError(f"Unknown LLM_PROVIDER: {provider!r}. Set to 'groq', 'openai', or 'gemini' in .env")
+        raise ValueError(f"Unknown LLM_PROVIDER: {provider!r}")
 
-    cleaned = _clean_json(raw)
-    try:
-        return json.loads(cleaned)
-    except json.JSONDecodeError as e:
-        logger.error(f"JSON parse failed.\nRaw:\n{raw}\nCleaned:\n{cleaned}")
-        raise ValueError(f"LLM returned invalid JSON: {e}") from e
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+    retry=retry_if_not_exception_type(ValueError)
+)
+async def complete_json(
+    system_prompt: str,
+    user_message: str,
+    use_smart_model: bool = False,
+    temperature: float = 0.1,
+    max_tokens: int = 4000,
+) -> dict:
+    """
+    Call the LLM with automatic cross-provider fallback and return parsed JSON dict.
+    """
+    primary_provider = settings.llm_provider
+    providers_to_try = [primary_provider]
+    if "groq" not in providers_to_try and settings.groq_api_key:
+        providers_to_try.append("groq")
+    if "openai" not in providers_to_try and settings.openai_api_key and settings.openai_api_key.startswith("sk-"):
+        providers_to_try.append("openai")
+    if "gemini" not in providers_to_try and settings.gemini_api_key:
+        providers_to_try.append("gemini")
+
+    last_error = None
+    for p in providers_to_try:
+        try:
+            raw = await _execute_provider_json(
+                provider=p,
+                system_prompt=system_prompt,
+                user_message=user_message,
+                use_smart_model=use_smart_model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+            cleaned = _clean_json(raw)
+            return json.loads(cleaned)
+        except Exception as e:
+            last_error = e
+            logger.warning(f"Provider '{p}' JSON completion failed: {e}. Attempting next available provider...")
+            continue
+
+    if last_error:
+        raise last_error
+    return {}
 
 
 @retry(

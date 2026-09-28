@@ -95,3 +95,52 @@ def test_backup_extraction_utilities():
     geo_kw = extract_backup_geo_keywords(bangalore_jd)
     assert "Bangalore" in geo_kw or "Bengaluru" in geo_kw
     assert "India" in geo_kw
+
+
+def test_veeva_vault_remote_jd_extraction():
+    """Verify that a remote/hybrid JD does NOT falsely extract California or SF."""
+    from nlp.keyword_extractor import extract_backup_geo_keywords, extract_backup_territory
+    from services.jd_service import parse_jd
+    import asyncio
+
+    veeva_jd = """
+    Role: Senior Veeva Vault QMS & DMS Migration Consultant
+    Engagement: Contract / Consultant
+    Experience: 7+ years in Life Sciences technology; 4+ years hands-on Veeva Vault experience
+    Location: Remote / Hybrid as required
+    Primary Focus: Veeva Vault QMS and DMS implementation, configuration, and data migration
+
+    Role Overview
+    We are seeking an experienced Veeva Vault QMS & DMS Consultant with strong expertise in end-to-end implementation and, most importantly, complex data migrations into Veeva Vault. The consultant must have completed multiple Veeva Vault QMS and/or QualityDocs (DMS) implementations and migrations for regulated Life Sciences clients.
+    """
+    territory = extract_backup_territory(veeva_jd)
+    geo_kw = extract_backup_geo_keywords(veeva_jd)
+
+    assert territory == "Remote"
+    assert geo_kw == ["Remote"]
+    assert "California" not in geo_kw
+    assert "Sf" not in geo_kw
+    assert "San Francisco" not in geo_kw
+
+
+def test_unlisted_cities_and_region_remote():
+    """Verify unlisted cities (Tokyo, Pune) and region-specific remote (US Remote, Remote - India)."""
+    from nlp.keyword_extractor import extract_backup_geo_keywords, extract_backup_territory
+
+    tokyo_jd = "Role: Solutions Architect\nLocation: Tokyo, Japan\nRequirements: Cloud architecture"
+    assert "Tokyo" in extract_backup_territory(tokyo_jd)
+    tokyo_geo = extract_backup_geo_keywords(tokyo_jd)
+    assert "Tokyo" in tokyo_geo
+    assert "Japan" in tokyo_geo
+
+    pune_jd = "Role: QA Engineer\nLocation: Pune, Maharashtra, India (Hybrid)\nRequirements: Selenium, Java"
+    assert "Pune" in extract_backup_territory(pune_jd)
+    pune_geo = extract_backup_geo_keywords(pune_jd)
+    assert any("pune" in g.lower() for g in pune_geo)
+
+    us_remote_jd = "Role: Account Executive\nLocation: US Remote\nRequirements: Sales"
+    assert "Remote" in extract_backup_territory(us_remote_jd)
+    us_geo = extract_backup_geo_keywords(us_remote_jd)
+    assert "United States" in us_geo
+    assert "California" not in us_geo
+

@@ -19,15 +19,16 @@ SKILLS & REQUIREMENTS RULES:
 - "currently_using_technology_uids": List the specific named tools/technologies (e.g., ["excel", "sap", "anaplan", "sql", "python", "aws"]).
 
 GEOGRAPHY & LOCATION RULES:
-- Extract ONLY the specific geographic locations (cities, states, provinces, countries, or regions) explicitly mentioned in the JD.
-- If a city is specified (e.g., "Bangalore", "Bengaluru", "Hyderabad", "London", "Austin", "Berlin", "San Francisco"), you MUST:
+- Extract ONLY the specific geographic locations (cities, states, provinces, countries, or regions) explicitly mentioned for the candidate / job opening in the JD.
+- If the JD specifies "Remote", "Remote / Hybrid as required", "Hybrid / Remote", "Work from home", "Anywhere", or "Global", set "geo_keywords" to ["Remote"] and "target_territory" to "Remote".
+- If the JD specifies region-specific remote (e.g., "Remote - India" or "US Remote"), set "geo_keywords" to the corresponding location(s) and "target_territory" to "[Region] (Remote)".
+- If a city is specified (e.g., "Bangalore", "Bengaluru", "Hyderabad", "London", "Austin", "Berlin", "Pleasanton", "San Francisco"), you MUST:
   1. Set "geo_keywords" to include the exact city name, known alternate spellings, state/region, and country (e.g., for Bangalore: ["Bangalore", "Bengaluru", "Karnataka", "India"]; for London: ["London", "United Kingdom", "UK"]; for Austin: ["Austin", "Texas", "United States"]).
   2. Set "target_territory" to the specific city and country combination (e.g., "Bangalore, India", "London, UK", "Austin, TX, United States"). NEVER collapse a specific city down to just a country name (e.g., do NOT turn "Bangalore" into just "India").
 - If only a country or region is specified (e.g. "India", "United Kingdom", "Germany", "Europe"), set "geo_keywords" to [country/region] and "target_territory" to that country/region.
-- If the JD specifies "Remote" without geographic limitation, or "Global" / "Worldwide", set "geo_keywords" to ["Remote"] and "target_territory" to "Remote".
-- If the JD specifies region-specific remote (e.g., "Remote - India" or "US Remote"), set "geo_keywords" to the corresponding location(s) and "target_territory" accordingly.
+- DO NOT extract company headquarters, investor locations, or client references from boilerplate/body text as the job location when the role is Remote or in another city.
+- DO NOT default to California, SF, or "United States" unless the JD explicitly mentions them for the job location.
 - If NO location is mentioned at all in the JD, return [] for "geo_keywords" and "" for "target_territory".
-- DO NOT default to US cities or "United States" unless the JD explicitly mentions them.
 
 COMPANIES & SENIORITY:
 - "target_companies": Infer 3-5 relevant industry peers or top companies in this exact role domain.

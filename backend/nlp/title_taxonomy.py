@@ -15,8 +15,8 @@ FUZZY_MATCH_THRESHOLD = 75.0
 # region rather than leaving it in 'california'.
 REGION_MAP = {
     "california": {
-        "names": ["california", "los angeles", "san francisco", "sf", "san diego", "west coast", "silicon valley"],
-        "codes": ["ca"]
+        "names": ["california", "los angeles", "san francisco", "san diego", "silicon valley"],
+        "codes": ["ca", "sf"]
     },
     "west coast": {
         "names": ["washington", "oregon", "seattle", "portland", "west coast", "pacific northwest", "pnw"],

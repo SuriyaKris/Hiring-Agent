@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import axios from 'axios'
 import toast from 'react-hot-toast'
 
@@ -7,6 +8,21 @@ const VERDICT_COLORS = {
   reject: 'bg-red-50 text-red-700 border-red-100 opacity-60',
   maybe: 'bg-amber-50 text-amber-700 border-amber-100',
   pending: 'bg-slate-50 text-slate-500 border-slate-200',
+}
+
+function buildOutreachEmail(candidate, roleNameParam, companyNameParam, recruiterNameParam) {
+  if (!candidate) return { subject: '', body: '' }
+  const role = roleNameParam || candidate.role_name || 'Inside Sales – US Region'
+  const company = companyNameParam || '4CECloud Labs'
+  const recruiter = recruiterNameParam || 'Meghana'
+  const name = candidate.full_name || 'there'
+  const title = candidate.current_title || 'Sales Professional'
+  const companyPhrase = candidate.current_company ? ` at ${candidate.current_company}` : ''
+
+  const subject = `Exciting Career Opportunity: ${role} role at ${company}`
+  const body = `Hi ${name},\n\nI hope this email finds you well.\n\nI’m ${recruiter}, a recruiter at ${company}. I came across your profile and was very impressed by your background as ${title}${companyPhrase}.\n\nWe are currently expanding our team and looking for a driven professional to fill our ${role} role. Your track record suggests you could be a fantastic fit for our aggressive growth strategy over the next 12 months.\n\nWould you be open to a brief introductory call next week to discuss this opportunity further?\n\nBest regards,\n\n${recruiter}\n${company}`
+
+  return { subject, body }
 }
 
 function normalizeCandidate(c, defaultRole = '') {
@@ -92,7 +108,131 @@ export default function Candidates({
   const [queueModalOpen, setQueueModalOpen] = useState(false)
   const [queueList, setQueueList] = useState([])
   const [queueIndex, setQueueIndex] = useState(0)
+  const [queueSubject, setQueueSubject] = useState('')
+  const [queueBody, setQueueBody] = useState('')
+  const [queueRecruiterName, setQueueRecruiterName] = useState('Meghana')
+  const [queueCompanyName, setQueueCompanyName] = useState('4CECloud Labs')
   const [activeSessionId, setActiveSessionId] = useState(sessionId || null)
+
+  const startBulkOutreachQueue = () => {
+    const shortlisted = candidates.filter(c => c.recruiter_verdict?.toLowerCase() === 'shortlist')
+    if (shortlisted.length === 0) {
+      toast.error('No shortlisted candidates found. Please mark candidates as "Shortlist" first.')
+      return
+    }
+
+    const withEmail = shortlisted.filter(c => (c.email || c.profile_details?.basic_info?.email || c.profile_details?.email || '').trim())
+    if (withEmail.length === 0) {
+      toast.error('None of the shortlisted candidates have email addresses. Please enrich profiles first.')
+      return
+    }
+
+    if (withEmail.length < shortlisted.length) {
+      const skipped = shortlisted.length - withEmail.length
+      toast(`${withEmail.length} shortlisted candidates queued (${skipped} skipped without email).`, { icon: 'ℹ️' })
+    }
+
+    setQueueList(withEmail)
+    setQueueIndex(0)
+    const initialTpl = buildOutreachEmail(withEmail[0], roleName || withEmail[0].role_name, queueCompanyName, queueRecruiterName)
+    setQueueSubject(initialTpl.subject)
+    setQueueBody(initialTpl.body)
+    setQueueModalOpen(true)
+  }
+
+  const processQueueNext = async () => {
+    if (queueIndex >= queueList.length) return
+    const curr = queueList[queueIndex]
+    const email = (curr.email || curr.profile_details?.basic_info?.email || curr.profile_details?.email || '').trim()
+
+    if (!email) {
+      toast.error(`No email address available for ${curr.full_name}`)
+      return
+    }
+
+    const targetRole = curr.role_name || roleName || 'Inside Sales – US Region'
+    const subject = queueSubject || `Exciting Career Opportunity: ${targetRole} role at ${queueCompanyName}`
+    const body = queueBody || `Hi ${curr.full_name},\n\nWould you be open to connecting regarding an opportunity at ${queueCompanyName}?`
+
+    // Open Gmail web compose in a new tab
+    const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(email)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
+    const newWin = window.open(gmailUrl, '_blank')
+    if (!newWin || newWin.closed || typeof newWin.closed === 'undefined') {
+      toast('Popup blocked by browser. Please allow popups to open Gmail automatically.', { icon: '⚠️', duration: 4000 })
+    }
+
+    // Save sent outreach record to backend
+    try {
+      await axios.post('/api/outreach/save', {
+        candidate_linkedin_url: curr.linkedin_url || '',
+        candidate_name: curr.full_name,
+        role_name: targetRole,
+        channel: 'email',
+        message_sent: body,
+      })
+    } catch (err) {
+      console.warn('Failed to record outreach history:', err)
+    }
+
+    if (queueIndex + 1 < queueList.length) {
+      const nextIdx = queueIndex + 1
+      setQueueIndex(nextIdx)
+      const nextCandidate = queueList[nextIdx]
+      const nextTpl = buildOutreachEmail(nextCandidate, roleName || nextCandidate.role_name, queueCompanyName, queueRecruiterName)
+      setQueueSubject(nextTpl.subject)
+      setQueueBody(nextTpl.body)
+      toast.success(`Opened Gmail for ${curr.full_name}. Candidate ${nextIdx + 1} of ${queueList.length} ready!`)
+    } else {
+      toast.success(`Completed outreach for all ${queueList.length} shortlisted candidates! 🎉`)
+      setQueueModalOpen(false)
+    }
+  }
+
+  const skipQueueCandidate = () => {
+    if (queueIndex + 1 < queueList.length) {
+      const nextIdx = queueIndex + 1
+      setQueueIndex(nextIdx)
+      const nextCandidate = queueList[nextIdx]
+      const nextTpl = buildOutreachEmail(nextCandidate, roleName || nextCandidate.role_name, queueCompanyName, queueRecruiterName)
+      setQueueSubject(nextTpl.subject)
+      setQueueBody(nextTpl.body)
+      toast('Skipped to next candidate', { icon: '⏭️' })
+    } else {
+      toast.success('Queue completed.')
+      setQueueModalOpen(false)
+    }
+  }
+
+  const copyQueueEmailContent = () => {
+    const fullText = `Subject: ${queueSubject}\n\n${queueBody}`
+    navigator.clipboard.writeText(fullText)
+    toast.success('Email draft copied to clipboard!')
+  }
+
+  const openCurrentInOutreachPage = () => {
+    if (!queueList[queueIndex]) return
+    const curr = queueList[queueIndex]
+    setQueueModalOpen(false)
+    onGenerateOutreach?.({
+      profile: curr.profile_details || {
+        basic_info: {
+          full_name: curr.full_name,
+          linkedin_url: curr.linkedin_url,
+          email: curr.email || '',
+          phone: curr.phone || '',
+          headline: curr.headline || '',
+          location: curr.location || '',
+        },
+        experience: [],
+        skills: [],
+        education: [],
+      },
+      fitment_score: curr.fitment_score,
+      score_breakdown: curr.score_breakdown || {},
+      score_reasoning: curr.score_reasoning,
+      recommended_action: curr.recommended_action,
+    })
+  }
 
   useEffect(() => {
     if (initialCandidates && initialCandidates.length > 0) {
@@ -704,20 +844,32 @@ export default function Candidates({
         </div>
       )}
 
-      {/* Outreach Queue Modal */}
-      {queueModalOpen && queueList.length > 0 && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 space-y-5 shadow-2xl border border-slate-200">
+      {/* Outreach Queue Modal (Rendered in React Portal to prevent CSS containing-block issues) */}
+      {queueModalOpen && queueList.length > 0 && typeof document !== 'undefined' && createPortal(
+        <div className="fixed inset-0 z-[9999] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-white rounded-2xl max-w-2xl w-full p-6 space-y-4 shadow-2xl border border-slate-200 overflow-hidden">
+            {/* Header */}
             <div className="flex justify-between items-center border-b border-slate-100 pb-3">
-              <div>
-                <h3 className="text-base font-bold text-slate-850">Bulk Outreach Queue</h3>
-                <p className="text-xs text-slate-400 font-semibold mt-0.5">
-                  Candidate {queueIndex + 1} of {queueList.length}
-                </p>
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-green-50 text-green-700 border border-green-200 flex items-center justify-center font-bold text-sm">
+                  ✉️
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-sm font-bold text-slate-900">Bulk Outreach Queue</h3>
+                    <span className="text-[10px] font-extrabold uppercase tracking-wide bg-blue-50 text-[#0B57D0] px-2 py-0.5 rounded border border-blue-100">
+                      Candidate {queueIndex + 1} of {queueList.length}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-400 font-semibold mt-0.5">
+                    Review and personalize email draft before opening in Gmail.
+                  </p>
+                </div>
               </div>
               <button 
                 onClick={() => setQueueModalOpen(false)}
-                className="text-slate-400 hover:text-slate-700 text-sm font-bold outline-none"
+                className="w-8 h-8 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 flex items-center justify-center text-sm font-bold transition-all outline-none cursor-pointer"
+                title="Close"
               >
                 ✕
               </button>
@@ -726,41 +878,123 @@ export default function Candidates({
             {/* Progress bar */}
             <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
               <div 
-                className="bg-[#0B57D0] h-full transition-all duration-300"
+                className="bg-[#0B57D0] h-full transition-all duration-300 rounded-full"
                 style={{ width: `${((queueIndex + 1) / queueList.length) * 100}%` }}
               />
             </div>
 
-            {/* Current Candidate Card */}
-            <div className="bg-[#f8fafc] border border-slate-200/70 rounded-xl p-4 space-y-2">
+            {/* Candidate Card Summary */}
+            <div className="bg-[#f8fafc] border border-slate-200/80 rounded-xl p-3.5 space-y-2">
               <div className="flex justify-between items-start">
-                <div>
-                  <p className="font-bold text-slate-800 text-sm">{queueList[queueIndex]?.full_name}</p>
-                  <p className="text-xs text-slate-500 font-semibold">{queueList[queueIndex]?.current_title} · {queueList[queueIndex]?.current_company}</p>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <p className="font-bold text-slate-900 text-sm">{queueList[queueIndex]?.full_name}</p>
+                    {queueList[queueIndex]?.linkedin_url && (
+                      <a 
+                        href={queueList[queueIndex].linkedin_url} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="text-[10px] text-blue-600 hover:underline font-bold inline-flex items-center gap-0.5"
+                      >
+                        LinkedIn 🔗
+                      </a>
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-600 font-medium mt-0.5">
+                    {queueList[queueIndex]?.current_title} · {queueList[queueIndex]?.current_company}
+                  </p>
+                  {queueList[queueIndex]?.location && (
+                    <p className="text-[11px] text-slate-400 font-medium">{queueList[queueIndex].location}</p>
+                  )}
                 </div>
-                <span className="text-xs font-bold text-green-700 bg-green-50 px-2 py-0.5 rounded border border-green-100">
-                  ✉️ {queueList[queueIndex]?.email}
-                </span>
+                <div className="shrink-0">
+                  <span className="text-xs font-bold text-green-700 bg-green-50 px-2.5 py-1 rounded-lg border border-green-200 inline-flex items-center gap-1.5">
+                    <span>✉️</span> {queueList[queueIndex]?.email}
+                  </span>
+                </div>
               </div>
             </div>
 
-            {/* Controls */}
-            <div className="flex justify-between items-center pt-2">
+            {/* Email Subject Input */}
+            <div>
+              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                Email Subject
+              </label>
+              <input 
+                value={queueSubject}
+                onChange={e => setQueueSubject(e.target.value)}
+                className="w-full bg-[#edf2fa] border border-slate-200/80 rounded-xl px-3.5 py-2 text-xs font-semibold text-slate-800 focus:outline-none focus:bg-white focus:border-blue-500 transition-all"
+                placeholder="Subject..."
+              />
+            </div>
+
+            {/* Email Body Content */}
+            <div>
+              <div className="flex justify-between items-center mb-1">
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                  Email Body (Editable)
+                </label>
+                <button
+                  type="button"
+                  onClick={copyQueueEmailContent}
+                  className="text-[10px] text-[#0B57D0] hover:underline font-bold transition-all outline-none cursor-pointer"
+                >
+                  📋 Copy Content
+                </button>
+              </div>
+              <textarea 
+                value={queueBody}
+                onChange={e => setQueueBody(e.target.value)}
+                rows={6}
+                className="w-full bg-[#f8fafc] border border-slate-200/80 rounded-xl p-3.5 text-xs text-slate-750 font-normal leading-relaxed focus:outline-none focus:bg-white focus:border-blue-500 resize-none transition-all"
+              />
+            </div>
+
+            {/* Modal Controls */}
+            <div className="flex justify-between items-center pt-2 border-t border-slate-100">
+              <div className="flex items-center gap-2">
+                <button 
+                  type="button"
+                  onClick={() => setQueueModalOpen(false)}
+                  className="px-3.5 py-2 text-xs font-bold text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-xl transition-all outline-none cursor-pointer"
+                >
+                  Cancel Queue
+                </button>
+                <button 
+                  type="button"
+                  onClick={openCurrentInOutreachPage}
+                  className="px-3 py-2 text-xs font-bold text-[#0B57D0] hover:bg-blue-50 rounded-xl transition-all outline-none cursor-pointer border border-blue-200"
+                  title="Open this candidate in full Outreach editor"
+                >
+                  Open in Outreach Tab ↗
+                </button>
+                {queueIndex + 1 < queueList.length && (
+                  <button 
+                    type="button"
+                    onClick={skipQueueCandidate}
+                    className="px-3.5 py-2 text-xs font-bold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-xl transition-all outline-none cursor-pointer"
+                  >
+                    Skip to Next ⏭️
+                  </button>
+                )}
+              </div>
+
               <button 
-                onClick={() => setQueueModalOpen(false)}
-                className="px-4 py-2 text-xs font-bold text-slate-500 hover:text-slate-800 transition-all outline-none"
-              >
-                Cancel Queue
-              </button>
-              <button 
+                type="button"
                 onClick={processQueueNext}
-                className="bg-[#0B57D0] hover:bg-[#0842a0] text-white px-5 py-2.5 rounded-xl text-xs font-bold transition-all shadow-md flex items-center gap-2 outline-none"
+                className="bg-[#0B57D0] hover:bg-[#0842a0] text-white px-5 py-2.5 rounded-xl text-xs font-bold transition-all shadow-md hover:shadow-lg flex items-center gap-2 outline-none cursor-pointer active:scale-95"
               >
-                ✉️ Open in Gmail ({queueIndex + 1}/{queueList.length}) →
+                <span>✉️</span>
+                <span>
+                  {queueIndex + 1 < queueList.length 
+                    ? `Open in Gmail & Next (${queueIndex + 1}/${queueList.length}) →` 
+                    : `Open in Gmail & Finish (${queueIndex + 1}/${queueList.length}) ✓`}
+                </span>
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   )
