@@ -222,7 +222,7 @@ export default function App() {
                       {status.using_mock_data ? '🧪 POC — mock' : '🟢 Apollo Live'}
                     </span>
                     <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-800 font-semibold border border-blue-200">
-                      {status.llm_provider === 'groq' ? '⚡ Groq' : '🤖 OpenAI'}
+                      {status.llm_provider === 'gemini' ? '✨ Gemini' : (status.llm_provider === 'groq' ? '⚡ Groq' : '🤖 OpenAI')}
                       {' · '}{status.fast_model?.split('-').slice(0,3).join('-')}
                     </span>
                   </div>

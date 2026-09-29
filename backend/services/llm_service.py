@@ -200,7 +200,15 @@ async def _execute_provider_json(
     temperature: float = 0.1,
     max_tokens: int = 4000,
 ) -> str:
-    raw_model = settings.smart_model if use_smart_model else settings.fast_model
+    if provider == "openai":
+        raw_model = settings.openai_smart_model if use_smart_model else settings.openai_fast_model
+    elif provider == "gemini":
+        raw_model = settings.gemini_smart_model if use_smart_model else settings.gemini_fast_model
+    elif provider == "groq":
+        raw_model = settings.groq_smart_model if use_smart_model else settings.groq_fast_model
+    else:
+        raw_model = settings.smart_model if use_smart_model else settings.fast_model
+
     model = _resolve_model(provider, raw_model)
     logger.debug(f"LLM call | provider={provider} model={model}")
 
@@ -211,8 +219,12 @@ async def _execute_provider_json(
         client = _openai_client() if provider == "openai" else _gemini_client()
         candidate_models = [model]
         if provider == "gemini":
-            for alt in ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-2.0-flash", "gemini-flash-latest"]:
-                if alt not in candidate_models:
+            for alt in [settings.gemini_fast_model, "gemini-3.5-flash-lite", "gemini-3.5-flash", "gemini-3.8-flash", "gemini-flash-latest", "gemini-2.5-flash"]:
+                if alt and alt not in candidate_models:
+                    candidate_models.append(alt)
+        elif provider == "openai":
+            for alt in [settings.openai_fast_model, "gpt-4o-mini", "gpt-4o"]:
+                if alt and alt not in candidate_models:
                     candidate_models.append(alt)
         
         last_err = None
@@ -230,7 +242,8 @@ async def _execute_provider_json(
                     response_format={"type": "json_object"},
                 )
                 raw = response.choices[0].message.content
-                break
+                if raw:
+                    break
             except Exception as ex:
                 last_err = ex
                 logger.warning(f"Model {cur_model} failed ({ex}). Trying next candidate...")
@@ -242,7 +255,7 @@ async def _execute_provider_json(
     elif provider == "groq":
         client = _groq_client()
         groq_models = [model]
-        for g_alt in [settings.groq_fast_model, "llama-3.1-8b-instant", "llama-3.3-70b-versatile"]:
+        for g_alt in [settings.groq_fast_model, "llama-3.1-8b-instant", "llama-3.3-70b-versatile", "llama-3.1-70b-versatile"]:
             if g_alt and g_alt not in groq_models:
                 groq_models.append(g_alt)
 
@@ -272,7 +285,8 @@ async def _execute_provider_json(
                         max_tokens=max_tokens,
                     )
                 raw = response.choices[0].message.content
-                break
+                if raw:
+                    break
             except Exception as ex:
                 last_err = ex
                 logger.warning(f"Groq model {g_model} failed ({ex}). Trying next...")
@@ -303,12 +317,12 @@ async def complete_json(
     """
     primary_provider = settings.llm_provider
     providers_to_try = [primary_provider]
-    if "groq" not in providers_to_try and settings.groq_api_key:
-        providers_to_try.append("groq")
-    if "openai" not in providers_to_try and settings.openai_api_key and settings.openai_api_key.startswith("sk-"):
-        providers_to_try.append("openai")
     if "gemini" not in providers_to_try and settings.gemini_api_key:
         providers_to_try.append("gemini")
+    if "groq" not in providers_to_try and settings.groq_api_key:
+        providers_to_try.append("groq")
+    if "openai" not in providers_to_try and settings.openai_api_key and settings.openai_api_key.strip() != "sk-..." and len(settings.openai_api_key.strip()) > 20:
+        providers_to_try.append("openai")
 
     last_error = None
     for p in providers_to_try:
@@ -333,6 +347,92 @@ async def complete_json(
     return {}
 
 
+async def _execute_provider_text(
+    provider: str,
+    system_prompt: str,
+    user_message: str,
+    use_smart_model: bool = False,
+    temperature: float = 0.7,
+    max_tokens: int = 1000,
+) -> str:
+    if provider == "openai":
+        raw_model = settings.openai_smart_model if use_smart_model else settings.openai_fast_model
+    elif provider == "gemini":
+        raw_model = settings.gemini_smart_model if use_smart_model else settings.gemini_fast_model
+    elif provider == "groq":
+        raw_model = settings.groq_smart_model if use_smart_model else settings.groq_fast_model
+    else:
+        raw_model = settings.smart_model if use_smart_model else settings.fast_model
+
+    model = _resolve_model(provider, raw_model)
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user",   "content": user_message},
+    ]
+
+    if provider in ("openai", "gemini"):
+        client = _openai_client() if provider == "openai" else _gemini_client()
+        candidate_models = [model]
+        if provider == "gemini":
+            for alt in [settings.gemini_fast_model, "gemini-3.5-flash-lite", "gemini-3.5-flash", "gemini-3.8-flash", "gemini-flash-latest", "gemini-2.5-flash"]:
+                if alt and alt not in candidate_models:
+                    candidate_models.append(alt)
+        elif provider == "openai":
+            for alt in [settings.openai_fast_model, "gpt-4o-mini", "gpt-4o"]:
+                if alt and alt not in candidate_models:
+                    candidate_models.append(alt)
+
+        last_err = None
+        for cur_model in candidate_models:
+            try:
+                response = await client.chat.completions.create(
+                    model=cur_model,
+                    messages=messages,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                )
+                txt = response.choices[0].message.content
+                if txt is not None:
+                    return txt
+            except Exception as ex:
+                last_err = ex
+                logger.warning(f"Text model {cur_model} failed ({ex}). Trying next candidate...")
+                continue
+        if last_err:
+            raise last_err
+        return ""
+
+    elif provider == "groq":
+        client = _groq_client()
+        groq_models = [model]
+        for g_alt in [settings.groq_fast_model, "llama-3.1-8b-instant", "llama-3.3-70b-versatile", "llama-3.1-70b-versatile"]:
+            if g_alt and g_alt not in groq_models:
+                groq_models.append(g_alt)
+
+        last_err = None
+        for g_model in groq_models:
+            try:
+                response = await client.chat.completions.create(
+                    model=g_model,
+                    messages=messages,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                )
+                txt = response.choices[0].message.content
+                if txt is not None:
+                    return txt
+            except Exception as ex:
+                last_err = ex
+                logger.warning(f"Groq text model {g_model} failed ({ex}). Trying next...")
+                continue
+        if last_err:
+            raise last_err
+        return ""
+
+    else:
+        raise ValueError(f"Unknown LLM_PROVIDER: {provider!r}")
+
+
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=2, max=10),
@@ -345,24 +445,32 @@ async def complete_text(
     temperature: float = 0.7,
     max_tokens: int = 1000,
 ) -> str:
-    """Return plain text (non-JSON) LLM response."""
-    raw_model = settings.smart_model if use_smart_model else settings.fast_model
-    provider  = settings.llm_provider
-    model     = _resolve_model(provider, raw_model)
+    """Return plain text (non-JSON) LLM response with automatic cross-provider fallback."""
+    primary_provider = settings.llm_provider
+    providers_to_try = [primary_provider]
+    if "gemini" not in providers_to_try and settings.gemini_api_key:
+        providers_to_try.append("gemini")
+    if "groq" not in providers_to_try and settings.groq_api_key:
+        providers_to_try.append("groq")
+    if "openai" not in providers_to_try and settings.openai_api_key and settings.openai_api_key.strip() != "sk-..." and len(settings.openai_api_key.strip()) > 20:
+        providers_to_try.append("openai")
 
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user",   "content": user_message},
-    ]
-    kwargs = dict(model=model, messages=messages, temperature=temperature, max_tokens=max_tokens)
+    last_error = None
+    for p in providers_to_try:
+        try:
+            return await _execute_provider_text(
+                provider=p,
+                system_prompt=system_prompt,
+                user_message=user_message,
+                use_smart_model=use_smart_model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+        except Exception as e:
+            last_error = e
+            logger.warning(f"Provider '{p}' text completion failed: {e}. Attempting next available provider...")
+            continue
 
-    if provider == "openai":
-        response = await _openai_client().chat.completions.create(**kwargs)
-    elif provider == "gemini":
-        response = await _gemini_client().chat.completions.create(**kwargs)
-    elif provider == "groq":
-        response = await _groq_client().chat.completions.create(**kwargs)
-    else:
-        raise ValueError(f"Unknown LLM_PROVIDER: {provider!r}")
-
-    return response.choices[0].message.content
+    if last_error:
+        raise last_error
+    return ""

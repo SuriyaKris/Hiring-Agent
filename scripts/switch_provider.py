@@ -1,11 +1,13 @@
 """
-switch_provider.py — Switch between POC (free) and production (paid) mode.
+switch_provider.py — Switch between Gemini (free primary), Groq (free fallback), and OpenAI (production).
 Works on Windows, Mac, and Linux.
 
 Usage (run from the hiring-agent-v2 folder):
+    python scripts/switch_provider.py gemini
     python scripts/switch_provider.py poc
     python scripts/switch_provider.py production
     python scripts/switch_provider.py status
+    python scripts/switch_provider.py set-gemini YOUR_KEY
     python scripts/switch_provider.py set-groq   YOUR_KEY
     python scripts/switch_provider.py set-openai YOUR_KEY
     python scripts/switch_provider.py set-apollo YOUR_KEY
@@ -18,11 +20,10 @@ import shutil
 
 
 # ── Path resolution — works from any working directory ───────────────────────
-# Script lives at  <root>/scripts/switch_provider.py
-# .env lives at    <root>/.env
 SCRIPT_DIR  = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)   # one level up from scripts/
 ENV_PATH     = os.path.join(PROJECT_ROOT, ".env")
+BACKEND_ENV_PATH = os.path.join(PROJECT_ROOT, "backend", ".env")
 EXAMPLE_PATH = os.path.join(PROJECT_ROOT, ".env.example")
 
 
@@ -36,7 +37,6 @@ def read_env(path=None):
             print(f"  Created .env from .env.example at:\n  {path}")
         else:
             return {}
-    # encoding="utf-8" + errors="replace" prevents the cp1252 crash on Windows
     with open(path, encoding="utf-8", errors="replace") as f:
         lines = f.readlines()
     env = {}
@@ -49,117 +49,122 @@ def read_env(path=None):
 
 
 def write_env_key(key, value, path=None):
-    path = path or ENV_PATH
+    paths = [path] if path else [ENV_PATH, BACKEND_ENV_PATH]
+    for target_path in paths:
+        if not target_path:
+            continue
+        if not os.path.exists(target_path):
+            if os.path.exists(EXAMPLE_PATH):
+                shutil.copy(EXAMPLE_PATH, target_path)
+            else:
+                open(target_path, "w", encoding="utf-8").close()
 
-    # Create .env if it doesn't exist yet
-    if not os.path.exists(path):
-        if os.path.exists(EXAMPLE_PATH):
-            shutil.copy(EXAMPLE_PATH, path)
+        with open(target_path, encoding="utf-8", errors="replace") as f:
+            content = f.read()
+
+        pattern = rf"^{re.escape(key)}\s*=.*$"
+        replacement = f"{key}={value}"
+
+        if re.search(pattern, content, re.MULTILINE):
+            content = re.sub(pattern, replacement, content, flags=re.MULTILINE)
         else:
-            open(path, "w", encoding="utf-8").close()
+            content = content.rstrip("\n") + f"\n{key}={value}\n"
 
-    with open(path, encoding="utf-8", errors="replace") as f:
-        content = f.read()
-
-    pattern = rf"^{re.escape(key)}\s*=.*$"
-    replacement = f"{key}={value}"
-
-    if re.search(pattern, content, re.MULTILINE):
-        content = re.sub(pattern, replacement, content, flags=re.MULTILINE)
-    else:
-        content = content.rstrip("\n") + f"\n{key}={value}\n"
-
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(content)
+        with open(target_path, "w", encoding="utf-8") as f:
+            f.write(content)
 
 
 # ── Commands ─────────────────────────────────────────────────────────────────
 
 def show_status(env):
-    provider = env.get("LLM_PROVIDER", "groq")
+    provider = env.get("LLM_PROVIDER", "gemini")
+    gemini   = env.get("GEMINI_API_KEY", "").strip()
     apollo   = env.get("APOLLO_API_KEY", "").strip()
     groq     = env.get("GROQ_API_KEY",   "").strip()
     openai   = env.get("OPENAI_API_KEY", "").strip()
 
     print()
-    print("=" * 50)
-    print("  4CECloud AI Hiring Agent — Current Config")
-    print("=" * 50)
+    print("=" * 55)
+    print("  4CECloud AI Hiring Agent — Current Configuration")
+    print("=" * 55)
     print(f"  .env location : {ENV_PATH}")
-    print(f"  LLM Provider  : {provider}")
-    print(f"  Groq key      : {'YES (free LLM)' if groq   else 'NOT SET'}")
-    print(f"  OpenAI key    : {'YES (paid LLM)' if openai else 'NOT SET'}")
-    print(f"  Apollo key    : {'YES — live candidate data' if apollo else 'NOT SET — using mock data'}")
+    print(f"  LLM Provider  : {provider.upper()} (Active)")
+    print(f"  Gemini key    : {'YES (Primary Free LLM)' if gemini else 'NOT SET'}")
+    print(f"  Groq key      : {'YES (Fallback LLM)' if groq else 'NOT SET'}")
+    print(f"  OpenAI key    : {'YES (Paid LLM)' if openai else 'NOT SET'}")
+    print(f"  Apollo key    : {'YES — live candidate search' if apollo else 'NOT SET — using mock data'}")
 
-    if provider == "groq" and not apollo:
-        mode = "POC / FREE  (Groq LLM + mock candidates)"
+    if provider == "gemini" and apollo:
+        mode = "RECOMMENDED PRODUCTION (Gemini 3.5 Flash Lite + Apollo Live Search)"
+    elif provider == "gemini" and not apollo:
+        mode = "GEMINI POC (Gemini 3.5 Flash Lite + Mock Data)"
+    elif provider == "groq" and not apollo:
+        mode = "GROQ POC (Groq Free LLM + Mock Data)"
     elif provider == "openai" and apollo:
-        mode = "PRODUCTION  (OpenAI + Apollo live data)"
+        mode = "PAID PRODUCTION (OpenAI GPT-4o + Apollo Live Search)"
     else:
-        mode = "PARTIAL     (some keys missing)"
+        mode = "CUSTOM / MIXED"
     print(f"\n  Mode          : {mode}")
-    print("=" * 50)
+    print("=" * 55)
     print()
+
+
+def switch_gemini():
+    write_env_key("LLM_PROVIDER", "gemini")
+    print("""
+Switched to Gemini mode (Primary Google AI Studio LLM).
+
+Active Models:
+  - Fast Model : gemini-3.5-flash-lite
+  - Smart Model: gemini-3.5-flash-lite
+
+Next steps:
+  1. If you need a key, get one free at: https://aistudio.google.com
+  2. Set key with:
+       python scripts/switch_provider.py set-gemini YOUR_KEY
+  3. Start backend:
+       python -m uvicorn main:app --reload --port 8000
+""")
 
 
 def switch_poc():
     write_env_key("LLM_PROVIDER", "groq")
     print("""
-Switched to POC mode (Groq free LLM + mock data).
+Switched to Groq mode (Groq free fallback LLM).
 
 Next steps:
-  1. Sign up at https://console.groq.com  (free, 30 seconds)
-  2. Create an API key there
-  3. Run:
-       python scripts/switch_provider.py set-groq  YOUR_GROQ_KEY
-
-  4. Start the backend:
-       cd backend
-       python -m venv venv
-       venv\\Scripts\\activate        (Windows)
-       pip install -r requirements.txt
-       uvicorn main:app --reload --port 8000
-
-  5. Seed mock candidates (no API needed):
-       python scripts/seed_mock.py
-
-  6. Start the frontend (new terminal):
-       cd frontend
-       npm install
-       npm run dev
-
-  Cost: $0.00 / month
+  1. Sign up at https://console.groq.com
+  2. Run:
+       python scripts/switch_provider.py set-groq YOUR_GROQ_KEY
 """)
 
 
 def switch_production():
     write_env_key("LLM_PROVIDER", "openai")
     print("""
-Switched to production mode (OpenAI + Apollo).
+Switched to OpenAI mode (Paid OpenAI + Apollo).
 
 Next steps:
   1. Set OpenAI key:
-       python scripts/switch_provider.py set-openai  sk-YOUR_KEY
-
+       python scripts/switch_provider.py set-openai sk-YOUR_KEY
   2. Set Apollo key:
-       python scripts/switch_provider.py set-apollo  YOUR_APOLLO_KEY
-
-  3. Restart the backend.
-
-  Cost: ~$64/month (Apollo $49 + OpenAI ~$15)
+       python scripts/switch_provider.py set-apollo YOUR_APOLLO_KEY
 """)
 
 
 def main():
     args = sys.argv[1:]
     if not args:
-        print("Usage: python scripts/switch_provider.py [poc | production | status | set-groq KEY | set-openai KEY | set-apollo KEY]")
+        print("Usage: python scripts/switch_provider.py [gemini | poc | production | status | set-gemini KEY | set-groq KEY | set-openai KEY | set-apollo KEY]")
         sys.exit(0)
 
     cmd = args[0].lower()
     env = read_env()
 
-    if cmd == "poc":
+    if cmd == "gemini":
+        switch_gemini()
+
+    elif cmd == "poc":
         switch_poc()
 
     elif cmd == "production":
@@ -168,22 +173,22 @@ def main():
     elif cmd == "status":
         show_status(env)
 
-    elif cmd == "set-groq" and len(args) > 1:
-        write_env_key("GROQ_API_KEY", args[1])
-        print(f"  Groq API key saved to {ENV_PATH}")
-
     elif cmd == "set-gemini" and len(args) > 1:
         write_env_key("GEMINI_API_KEY", args[1])
         write_env_key("LLM_PROVIDER", "gemini")
-        print(f"  Gemini API key saved and LLM_PROVIDER set to 'gemini' in {ENV_PATH}")
+        print(f"  Gemini API key saved and LLM_PROVIDER set to 'gemini' in {ENV_PATH} and {BACKEND_ENV_PATH}")
+
+    elif cmd == "set-groq" and len(args) > 1:
+        write_env_key("GROQ_API_KEY", args[1])
+        print(f"  Groq API key saved to {ENV_PATH} and {BACKEND_ENV_PATH}")
 
     elif cmd == "set-openai" and len(args) > 1:
         write_env_key("OPENAI_API_KEY", args[1])
-        print(f"  OpenAI API key saved to {ENV_PATH}")
+        print(f"  OpenAI API key saved to {ENV_PATH} and {BACKEND_ENV_PATH}")
 
     elif cmd == "set-apollo" and len(args) > 1:
         write_env_key("APOLLO_API_KEY", args[1])
-        print(f"  Apollo API key saved to {ENV_PATH}")
+        print(f"  Apollo API key saved to {ENV_PATH} and {BACKEND_ENV_PATH}")
 
     else:
         print(f"  Unknown command: {cmd}")

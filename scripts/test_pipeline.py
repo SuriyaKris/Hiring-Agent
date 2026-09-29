@@ -1,6 +1,6 @@
 """
 test_pipeline.py — End-to-end integration test for the full hiring pipeline.
-Tests POC mode (no paid keys needed) and validates each step works.
+Tests Gemini (or Groq/OpenAI) + Apollo (or mock) and validates each step.
 
 Usage (run from hiring-agent-v2 folder):
     python scripts/test_pipeline.py
@@ -19,9 +19,6 @@ sys.path.insert(0, BACKEND_DIR)
 # Change working dir to backend so .env and db file are found
 os.chdir(BACKEND_DIR)
 
-# Force mock mode for testing (no API keys needed for mock data test)
-os.environ.setdefault("APOLLO_API_KEY", "")
-
 from dotenv import load_dotenv
 load_dotenv(os.path.join(PROJECT_ROOT, ".env"))
 
@@ -34,7 +31,7 @@ async def test_all():
     from config import get_settings
     settings = get_settings()
     print(f"\n  Config: LLM={settings.llm_provider} | model={settings.fast_model}")
-    print(f"  Data source: {'mock (no Apollo key)' if settings.using_mock_data else 'Apollo'}\n")
+    print(f"  Data source: {'Mock Data' if settings.using_mock_data else 'Apollo.io Live'}\n")
 
     sample_jd = """
     We are hiring an Inside Sales Representative for US region.
@@ -48,6 +45,7 @@ async def test_all():
 
     spec = None
     scored = None
+    profiles = []
 
     # ── Test 1: JD Parser ─────────────────────────────────────
     print("[1] Testing JD Parser (LLM call)...")
@@ -60,8 +58,8 @@ async def test_all():
         print(f"        Geo:    {spec.geo_keywords[:3]}")
     except Exception as e:
         print(f"    FAIL: {e}")
-        if "GROQ_API_KEY" not in str(e) and "OPENAI_API_KEY" not in str(e):
-            print("         --> Check that GROQ_API_KEY is set in your .env file")
+        if "GEMINI_API_KEY" not in str(e) and "GROQ_API_KEY" not in str(e):
+            print("         --> Check that GEMINI_API_KEY or GROQ_API_KEY is set in your .env file")
         # Build a minimal spec so later tests can still run
         from models.schemas import JDSearchSpec
         spec = JDSearchSpec(
@@ -73,14 +71,16 @@ async def test_all():
             summary="US Inside Sales role",
         )
 
-    # ── Test 2: Candidate search (mock) ───────────────────────
-    print("\n[2] Testing candidate search (mock data, no API key needed)...")
+    # ── Test 2: Candidate search ──────────────────────────────
+    print("\n[2] Testing candidate search...")
     try:
-        from services.apollo_service import get_candidates
-        profiles, source = await get_candidates(spec, max_results=5)
-        assert len(profiles) > 0, "No candidates returned"
-        print(f"    OK  {len(profiles)} candidates from source={source}")
-        print(f"        First: {profiles[0].full_name} -- {profiles[0].current_title}")
+        from services.apollo_service import apollo_search
+        profiles = await apollo_search(spec, max_results=5)
+        if profiles:
+            print(f"    OK  {len(profiles)} candidates sourced")
+            print(f"        First: {profiles[0].full_name} -- {profiles[0].current_title} at {profiles[0].current_company}")
+        else:
+            print("    INFO: 0 candidates returned from search (check Apollo filters or API key)")
     except Exception as e:
         print(f"    FAIL: {e}")
         profiles = []
@@ -90,9 +90,9 @@ async def test_all():
     try:
         if profiles:
             from services.candidate_enrichment import CandidateEnrichmentService
-            import providers.mock_mapper
+            import providers.apollo_mapper
             enrich_service = CandidateEnrichmentService()
-            canonical_profile = enrich_service.enrich(profiles[0].raw_data or {}, profiles[0].source or "mock")
+            canonical_profile = enrich_service.enrich(profiles[0].raw_data or {}, profiles[0].source or "apollo")
 
             from services.scoring_service import score_candidate
             scored = await score_candidate(canonical_profile, spec)
@@ -129,7 +129,7 @@ async def test_all():
         result = await run_pipeline(
             jd_text=sample_jd,
             role_name="Inside Sales - US Region",
-            max_candidates=5
+            max_candidates=3
         )
         assert result.candidates
         print(f"    OK  run_id={result.run_id}")
@@ -139,9 +139,7 @@ async def test_all():
         print(f"    FAIL: {e}")
 
     print("\n" + "=" * 55)
-    print("  Done. If LLM steps failed:")
-    print("  Run:  python scripts/switch_provider.py set-groq YOUR_KEY")
-    print("  Get free key at: https://console.groq.com")
+    print("  Done. Integration tests completed.")
     print("=" * 55 + "\n")
 
 

@@ -24,23 +24,23 @@ class Settings(BaseSettings):
             )
         return v
 
-    # LLM provider switch
-    llm_provider: str = "groq"          # "groq" (free POC) | "openai" (production)
+    # LLM provider switch (primary: "gemini" | fallback: "groq" | optional: "openai")
+    llm_provider: str = "gemini"
 
-    # Groq — free tier
+    # Gemini — Google AI Studio (primary free & high rate limit)
+    gemini_api_key: str = ""
+    gemini_fast_model: str = "gemini-3.5-flash-lite"
+    gemini_smart_model: str = "gemini-3.5-flash-lite"
+
+    # Groq — free tier fallback
     groq_api_key: str = ""
     groq_fast_model: str = "llama-3.1-8b-instant"
     groq_smart_model: str = "llama-3.3-70b-versatile"
 
-    # OpenAI — paid production
+    # OpenAI — optional paid production
     openai_api_key: str = ""
     openai_fast_model: str = "gpt-4o-mini"
     openai_smart_model: str = "gpt-4o"
-
-    # Gemini — Google AI Studio (free & high rate limit)
-    gemini_api_key: str = ""
-    gemini_fast_model: str = "gemini-3.5-flash-lite"
-    gemini_smart_model: str = "gemini-3.5-flash-lite"
 
     # Data sources
     apollo_api_key: str = ""            # blank = use mock data
