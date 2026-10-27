@@ -117,8 +117,8 @@ class ApolloProvider(BaseProvider):
                 loc = f"{person.get('city', '')}, {person.get('state', '')}, {person.get('country', '')}".strip(", ")
                 if loc:
                     bi.location = loc
-            if not bi.headline and person.get("headline"):
-                bi.headline = person.get("headline")
+            if not bi.headline:
+                bi.headline = person.get("headline") or person.get("title")
                 
             # Store Apollo IDs and raw details
             profile.metadata.apollo_person_id = person.get("id")

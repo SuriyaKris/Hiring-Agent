@@ -113,9 +113,15 @@ export default function Candidates({
   const [queueRecruiterName, setQueueRecruiterName] = useState('Meghana')
   const [queueCompanyName, setQueueCompanyName] = useState('4CECloud Labs')
   const [activeSessionId, setActiveSessionId] = useState(sessionId || null)
+  const [bulkPhoneModalOpen, setBulkPhoneModalOpen] = useState(false)
+  const [bulkPhoneLoading, setBulkPhoneLoading] = useState(false)
+  const [enrichingUrl, setEnrichingUrl] = useState(null)
+
+  const shortlistedCandidates = candidates.filter(c => c.recruiter_verdict?.toLowerCase() === 'shortlist')
+  const shortlistedWithoutPhone = shortlistedCandidates.filter(c => !c.phone || !c.phone.trim())
 
   const startBulkOutreachQueue = () => {
-    const shortlisted = candidates.filter(c => c.recruiter_verdict?.toLowerCase() === 'shortlist')
+    const shortlisted = shortlistedCandidates
     if (shortlisted.length === 0) {
       toast.error('No shortlisted candidates found. Please mark candidates as "Shortlist" first.')
       return
@@ -290,23 +296,46 @@ export default function Candidates({
   }
 
   const enrichCandidate = async (linkedinUrl) => {
-    const toastId = toast.loading('Enriching candidate profile...')
+    setEnrichingUrl(linkedinUrl)
+    const toastId = toast.loading('Looking up contact & mobile number via Apollo...')
     try {
       const { data } = await axios.post('/api/candidates/enrich', { candidate_linkedin_url: linkedinUrl })
-      setCandidates(prev => prev.map(c => c.linkedin_url === linkedinUrl ? {
-        ...c,
-        email: data.basic_info?.email || '',
-        phone: data.basic_info?.phone || '',
-        full_name: data.basic_info?.full_name || c.full_name,
-        profile_details: {
-          ...c.profile_details,
-          ...data.metadata?.raw_data
-        }
-      } : c))
-      toast.success('Profile enriched successfully!', { id: toastId })
+      await load()
+      if (data.basic_info?.phone) {
+        toast.success(`Mobile found: ${data.basic_info.phone}`, { id: toastId, duration: 4000 })
+      } else if (data.basic_info?.email) {
+        toast.success(`Email verified (${data.basic_info.email}), no direct mobile on file in Apollo.`, { id: toastId, duration: 5000 })
+      } else {
+        toast.success('Profile details refreshed from Apollo.', { id: toastId })
+      }
     } catch (err) {
       const errorMsg = err.response?.data?.detail || 'Enrichment failed.'
       toast.error(errorMsg, { id: toastId })
+    } finally {
+      setEnrichingUrl(null)
+    }
+  }
+
+  const handleBulkEnrichPhones = async () => {
+    setBulkPhoneLoading(true)
+    const toastId = toast.loading('Looking up mobile numbers from Apollo for shortlisted candidates...')
+    try {
+      const payload = {
+        session_id: activeSessionId || null,
+        target_verdict: 'shortlist'
+      }
+      const { data } = await axios.post('/api/candidates/bulk-enrich-phone', payload)
+      await load()
+      toast.success(
+        `Completed! Found ${data.phones_found} mobile number(s) across ${data.total_candidates} shortlisted candidate(s).`,
+        { id: toastId, duration: 6000 }
+      )
+      setBulkPhoneModalOpen(false)
+    } catch (err) {
+      const errorMsg = err.response?.data?.detail || 'Bulk phone enrichment failed.'
+      toast.error(errorMsg, { id: toastId })
+    } finally {
+      setBulkPhoneLoading(false)
     }
   }
 
@@ -422,10 +451,23 @@ export default function Candidates({
         </button>
         <button 
           onClick={startBulkOutreachQueue} 
-          className="bg-green-600 hover:bg-green-700 text-white px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm outline-none"
+          className="bg-green-600 hover:bg-green-700 text-white px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm outline-none cursor-pointer"
           title="Bulk Outreach Queue for Shortlisted Candidates"
         >
-          ✉️ Send to Shortlisted ({candidates.filter(c => c.recruiter_verdict === 'shortlist').length})
+          ✉️ Send to Shortlisted ({shortlistedCandidates.length})
+        </button>
+        <button 
+          onClick={() => {
+            if (shortlistedCandidates.length === 0) {
+              toast.error('No shortlisted candidates found. Please mark candidates as "Shortlist" first.')
+              return
+            }
+            setBulkPhoneModalOpen(true)
+          }}
+          className="bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm outline-none cursor-pointer"
+          title="Look up mobile numbers for shortlisted candidates via Apollo"
+        >
+          📞 Fetch Mobile ({shortlistedWithoutPhone.length})
         </button>
         <button 
           onClick={handleExport} 
@@ -615,11 +657,40 @@ export default function Candidates({
 
                   {/* Actions column */}
                   <div className="shrink-0 flex flex-col gap-2 items-end">
-                    {c.email && (
-                      <span className="text-[10px] text-green-700 font-bold bg-green-50 px-2.5 py-1 rounded-lg border border-green-100 inline-flex items-center gap-1" title={c.email}>
-                        ✉️ {c.email}
-                      </span>
-                    )}
+                    <div className="flex flex-col items-end gap-1.5">
+                      {c.email && (
+                        <span className="text-[10px] text-green-700 font-bold bg-green-50 px-2.5 py-1 rounded-lg border border-green-100 inline-flex items-center gap-1" title={c.email}>
+                          ✉️ {c.email}
+                        </span>
+                      )}
+                      {c.phone ? (
+                        <a 
+                          href={`tel:${c.phone}`}
+                          className="text-[10px] text-emerald-700 font-bold bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded-lg border border-emerald-200 inline-flex items-center gap-1 transition-colors" 
+                          title={`Click to call ${c.phone}`}
+                        >
+                          📞 {c.phone}
+                        </a>
+                      ) : c.email ? (
+                        <button
+                          onClick={() => enrichCandidate(c.linkedin_url)}
+                          disabled={enrichingUrl === c.linkedin_url}
+                          className="text-[10px] bg-slate-50 hover:bg-slate-100 text-slate-500 hover:text-slate-700 px-2.5 py-1 rounded-lg font-bold border border-slate-200 transition-all outline-none flex items-center gap-1 cursor-pointer"
+                          title="Apollo verified the work email, but has no direct mobile on file for this candidate. Click to retry lookup."
+                        >
+                          {enrichingUrl === c.linkedin_url ? '↻ Checking...' : '📞 No mobile on file'}
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => enrichCandidate(c.linkedin_url)}
+                          disabled={enrichingUrl === c.linkedin_url}
+                          className="text-[10px] bg-blue-50 hover:bg-blue-100 text-[#0B57D0] px-2.5 py-1 rounded-lg font-bold border border-blue-200 transition-all outline-none flex items-center gap-1 cursor-pointer active:scale-95"
+                          title="Look up verified contact details and mobile number via Apollo"
+                        >
+                          {enrichingUrl === c.linkedin_url ? '↻ Revealing...' : '📞 Reveal Mobile'}
+                        </button>
+                      )}
+                    </div>
 
                     {/* Verdict actions */}
                     <div className="flex gap-1 border border-slate-200/50 p-0.5 bg-slate-50 rounded-lg">
@@ -707,9 +778,19 @@ export default function Candidates({
                         <span className="text-[9px] font-bold text-slate-400 tracking-wider uppercase">Enrichment Source</span>
                         <p className="font-bold text-slate-800 mt-1">{c.profile_details?.enrichment_type || 'N/A'}</p>
                       </div>
-                      <div className="col-span-2">
+                      <div>
                         <span className="text-[9px] font-bold text-slate-400 tracking-wider uppercase">Email Address</span>
                         <p className="font-bold text-slate-800 mt-1 truncate" title={c.email}>{c.email || 'N/A'}</p>
+                      </div>
+                      <div>
+                        <span className="text-[9px] font-bold text-slate-400 tracking-wider uppercase">Mobile / Phone</span>
+                        <p className="font-bold text-slate-800 mt-1 truncate" title={c.phone}>
+                          {c.phone ? (
+                            <a href={`tel:${c.phone}`} className="text-emerald-700 hover:underline">
+                              {c.phone}
+                            </a>
+                          ) : (c.email ? 'Unavailable on Apollo' : 'Not revealed')}
+                        </p>
                       </div>
                       <div>
                         <span className="text-[9px] font-bold text-slate-400 tracking-wider uppercase">Time Zone</span>
@@ -990,6 +1071,74 @@ export default function Candidates({
                     ? `Open in Gmail & Next (${queueIndex + 1}/${queueList.length}) →` 
                     : `Open in Gmail & Finish (${queueIndex + 1}/${queueList.length}) ✓`}
                 </span>
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Bulk Phone Enrichment Modal */}
+      {bulkPhoneModalOpen && createPortal(
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-5 shadow-2xl border border-slate-200">
+            <div className="flex justify-between items-center border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <span className="text-xl">📞</span>
+                <h3 className="text-base font-bold text-slate-900">Fetch Mobile Numbers</h3>
+              </div>
+              <button 
+                type="button"
+                disabled={bulkPhoneLoading}
+                onClick={() => setBulkPhoneModalOpen(false)}
+                className="text-slate-400 hover:text-slate-700 text-sm font-bold outline-none cursor-pointer p-1"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs text-slate-650 leading-relaxed">
+              <p>
+                You are about to look up mobile phone numbers from Apollo for{' '}
+                <strong className="text-slate-900">{shortlistedWithoutPhone.length} shortlisted candidate(s)</strong> who currently don't have a phone on file.
+              </p>
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-amber-800 flex items-start gap-2.5">
+                <span className="text-base shrink-0">⚠️</span>
+                <div>
+                  <p className="font-bold text-[11px]">Apollo Credit Information</p>
+                  <p className="text-[11px] mt-0.5 leading-relaxed text-amber-750">
+                    Apollo consumes Phone / Mobile Credits for each candidate contact revealed. Uncovered numbers will be saved in PostgreSQL and displayed on the candidate cards.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end items-center gap-2 pt-3 border-t border-slate-100">
+              <button 
+                type="button"
+                disabled={bulkPhoneLoading}
+                onClick={() => setBulkPhoneModalOpen(false)}
+                className="px-4 py-2 text-xs font-bold text-slate-500 hover:text-slate-800 rounded-xl transition-all outline-none cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button 
+                type="button"
+                disabled={bulkPhoneLoading || shortlistedWithoutPhone.length === 0}
+                onClick={handleBulkEnrichPhones}
+                className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white px-5 py-2.5 rounded-xl text-xs font-bold transition-all shadow-md flex items-center gap-2 outline-none cursor-pointer active:scale-95"
+              >
+                {bulkPhoneLoading ? (
+                  <>
+                    <span className="animate-spin text-sm">↻</span>
+                    <span>Fetching from Apollo...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>📞</span>
+                    <span>Confirm & Fetch Numbers ({shortlistedWithoutPhone.length})</span>
+                  </>
+                )}
               </button>
             </div>
           </div>

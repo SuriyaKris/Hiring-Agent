@@ -181,6 +181,11 @@ class EnrichRequest(BaseModel):
     candidate_linkedin_url: str
 
 
+class BulkEnrichPhoneRequest(BaseModel):
+    session_id: Optional[str] = None
+    target_verdict: Optional[str] = "shortlist"
+
+
 class RankRequest(BaseModel):
     spec: JDSearchSpec
     candidates: list[CandidateProfile]

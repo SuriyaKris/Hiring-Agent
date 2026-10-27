@@ -25,6 +25,53 @@ def clean_geo_locations_for_apollo(geo_keywords: List[str]) -> List[str]:
     return cleaned
 
 
+VALID_APOLLO_SENIORITIES = {
+    "owner", "founder", "c_suite", "partner", "vp", "head", "director", "manager", "senior", "entry"
+}
+
+SENIORITY_ALIAS_MAP = {
+    "fresher": "entry",
+    "freshers": "entry",
+    "entry-level": "entry",
+    "entry level": "entry",
+    "entry_level": "entry",
+    "junior": "entry",
+    "jr": "entry",
+    "intern": "entry",
+    "trainee": "entry",
+    "associate": "entry",
+    "lead": "senior",
+    "sr": "senior",
+    "principal": "senior",
+    "staff": "senior",
+    "c-suite": "c_suite",
+    "c_suite": "c_suite",
+    "cxo": "c_suite",
+    "vp": "vp",
+    "vice president": "vp",
+    "head": "head",
+    "director": "director",
+    "manager": "manager",
+    "owner": "owner",
+    "founder": "founder",
+    "partner": "partner",
+}
+
+
+def normalize_seniority_for_apollo(seniorities: List[str]) -> List[str]:
+    """Map arbitrary user/LLM seniority strings into valid Apollo seniority filters."""
+    result = set()
+    for s in seniorities:
+        if not s:
+            continue
+        cleaned = s.strip().lower()
+        if cleaned in VALID_APOLLO_SENIORITIES:
+            result.add(cleaned)
+        elif cleaned in SENIORITY_ALIAS_MAP and SENIORITY_ALIAS_MAP[cleaned]:
+            result.add(SENIORITY_ALIAS_MAP[cleaned])
+    return list(result)
+
+
 class ApolloSearchPlanner:
     """Intelligently compiles job search specifications into optimized Apollo query filters."""
 
@@ -63,27 +110,35 @@ class ApolloSearchPlanner:
             if locs:
                 locations = locs
 
-        # Skills mapping
-        skills = spec.required_skills.copy() if spec.required_skills else []
-        if broadening_level == 1 and len(skills) > 3:
-            skills = skills[:3]
-        elif broadening_level >= 2:
-            skills = []  # Drop keyword constraint to maximize discovery
+        # Seniority levels mapping: normalize to valid Apollo seniorities
+        raw_seniorities = spec.seniority_levels if spec.seniority_levels else []
+        mapped_seniorities = normalize_seniority_for_apollo(raw_seniorities)
 
-        # Seniority levels
-        seniority = [s.lower() for s in spec.seniority_levels] if spec.seniority_levels else ["senior", "mid"]
+        # In broadening level 0 and 1, use mapped seniorities if available.
+        # In broadening level >= 2, drop seniority filter to maximize discovery across untagged profiles.
         if broadening_level >= 2:
-            seniority.extend(["entry", "director"])
-            seniority = list(set(seniority))
+            seniority = []
+        else:
+            seniority = mapped_seniorities
+
+        # Skills / Keywords mapping:
+        # In Apollo, q_keywords is a strict boolean text search. Concatenating multiple multi-word skills
+        # causes Apollo to return 0 results because almost no candidate has all words in their summary.
+        # Only use q_keywords if titles are completely absent.
+        q_keywords = ""
+        if not titles and spec.required_skills:
+            q_keywords = spec.required_skills[0]
 
         filters = {
             "person_titles": titles,
             "person_locations": locations,
-            "q_keywords": " ".join(skills[:5]) if skills else "",
-            "person_seniorities": seniority,
             "page": 1,
             "per_page": 25,
         }
+        if q_keywords:
+            filters["q_keywords"] = q_keywords
+        if seniority:
+            filters["person_seniorities"] = seniority
         
         # In strict level 0, prioritize verified emails; in broader levels, relax constraint
         if broadening_level == 0:

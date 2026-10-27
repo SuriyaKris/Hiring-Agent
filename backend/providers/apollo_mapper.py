@@ -15,12 +15,13 @@ class ApolloNormalizer(BaseNormalizer):
         # 1. Map Basic Info
         last_name = person.get("last_name") or person.get("last_name_obfuscated") or ""
         full_name = person.get("name") or f"{person.get('first_name', '')} {last_name}".strip() or "Unknown"
+        title = person.get("title") or person.get("headline") or ""
 
         basic_info = {
             "first_name": person.get("first_name") or None,
             "last_name": person.get("last_name") or person.get("last_name_obfuscated") or None,
             "full_name": full_name,
-            "headline": person.get("headline") or None,
+            "headline": person.get("headline") or title or None,
             "location": f"{person.get('city', '')}, {person.get('state', '')}, {person.get('country', '')}".strip(", ") or None,
             "linkedin_url": person.get("linkedin_url") or (f"https://linkedin.com/in/{person.get('id', '')}" if person.get("id") else None),
             "email": person.get("email") or None,
@@ -32,8 +33,8 @@ class ApolloNormalizer(BaseNormalizer):
 
         # 2. Map Profile Summary
         summary = {
-            "about": person.get("headline") or None,
-            "tagline": person.get("headline") or None,
+            "about": person.get("headline") or title or None,
+            "tagline": person.get("headline") or title or None,
         }
 
         # 3. Map Experience History
@@ -48,6 +49,19 @@ class ApolloNormalizer(BaseNormalizer):
                 "location": f"{exp.get('city', '')}, {exp.get('state', '')}".strip(", ") or None,
                 "employment_type": None,
                 "is_current": exp.get("is_current") or exp.get("current") or False,
+            })
+
+        company_name = person.get("organization_name") or person.get("organization", {}).get("name") or current_job.get("organization_name") or ""
+        if not experience_items and (title or company_name):
+            experience_items.append({
+                "company_name": company_name,
+                "title": title,
+                "start_date": None,
+                "end_date": None,
+                "description": None,
+                "location": f"{person.get('city', '')}, {person.get('state', '')}".strip(", ") or None,
+                "employment_type": None,
+                "is_current": True,
             })
 
         # 4. Map Skills

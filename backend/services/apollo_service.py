@@ -150,12 +150,16 @@ async def apollo_search(spec: JDSearchSpec, max_results: int = 25) -> list[Legac
         if filters.get("contact_email_status"):
             payload["contact_email_status"] = filters["contact_email_status"]
             
-        if hasattr(spec, "currently_using_technology_uids") and spec.currently_using_technology_uids:
-            payload["currently_using_any_of_technology_uids"] = [
+        # Technographics: only attempt on Level 0 if valid non-generic tools are present; drop when broadening
+        if broadening_level == 0 and hasattr(spec, "currently_using_technology_uids") and spec.currently_using_technology_uids:
+            generic_desktop_tools = {"excel", "ms_office", "ms office", "word", "powerpoint", "office", "google_docs", "sheets"}
+            valid_techs = [
                 t.lower().strip().replace(" ", "_").replace(".", "_")
                 for t in spec.currently_using_technology_uids
-                if t.strip()
+                if t.strip() and t.lower().strip() not in generic_desktop_tools
             ]
+            if valid_techs:
+                payload["currently_using_any_of_technology_uids"] = valid_techs
 
         logger.info(f"[Apollo Search] Querying Apollo (Level {broadening_level}): titles={payload.get('person_titles', [])[:3]}, locations={payload.get('person_locations', [])[:3]}, keywords={payload.get('q_keywords', '')}")
 
