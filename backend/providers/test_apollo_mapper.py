@@ -139,6 +139,41 @@ class TestApolloMapper(unittest.TestCase):
         self.assertEqual(profile.company.website, "https://salesforce.com")
         self.assertEqual(profile.company.size, "10000+")
 
+    def test_personal_email_prioritized_over_corporate(self):
+        """Verify personal email is prioritized as primary email when available."""
+        raw_payload = {
+            "name": "Sushma Prathap",
+            "email": "sushma.prathap@intellicar.in",
+            "personal_emails": ["sushma_prathap2005@yahoo.com"],
+        }
+        profile = self.enrich_service.enrich(raw_payload, "apollo")
+        self.assertEqual(profile.basic_info.email, "sushma_prathap2005@yahoo.com")
+        self.assertEqual(profile.basic_info.personal_email, "sushma_prathap2005@yahoo.com")
+        self.assertEqual(profile.basic_info.corporate_email, "sushma.prathap@intellicar.in")
+
+    def test_corporate_email_fallback_when_no_personal(self):
+        """Verify corporate email is used as primary email when personal email is not available."""
+        raw_payload = {
+            "name": "Ayushi Kashyap",
+            "email": "ayushi.kashyap@tcs.com",
+            "personal_emails": [],
+        }
+        profile = self.enrich_service.enrich(raw_payload, "apollo")
+        self.assertEqual(profile.basic_info.email, "ayushi.kashyap@tcs.com")
+        self.assertIsNone(profile.basic_info.personal_email)
+        self.assertEqual(profile.basic_info.corporate_email, "ayushi.kashyap@tcs.com")
+
+    def test_personal_domain_detection(self):
+        """Verify free/personal domains (like Gmail) in work email field are recognized as personal."""
+        raw_payload = {
+            "name": "Jane Doe",
+            "email": "janedoe@gmail.com",
+            "personal_emails": [],
+        }
+        profile = self.enrich_service.enrich(raw_payload, "apollo")
+        self.assertEqual(profile.basic_info.email, "janedoe@gmail.com")
+        self.assertEqual(profile.basic_info.personal_email, "janedoe@gmail.com")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -213,7 +213,8 @@ def merge_profiles(existing: CandidateProfile, new_profile: CandidateProfile) ->
         for field in [
             "basic_info.first_name", "basic_info.last_name", "basic_info.full_name",
             "basic_info.headline", "basic_info.location", "basic_info.linkedin_url",
-            "basic_info.email", "basic_info.phone", "basic_info.twitter_url",
+            "basic_info.email", "basic_info.personal_email", "basic_info.corporate_email",
+            "basic_info.phone", "basic_info.twitter_url",
             "basic_info.github_url", "basic_info.portfolio_url", "summary.about", "summary.tagline"
         ]:
             sources_dict[field] = existing_source
@@ -230,6 +231,8 @@ def merge_profiles(existing: CandidateProfile, new_profile: CandidateProfile) ->
         location=_merge_value(eb.location, nb.location, "basic_info.location", new_source, sources_dict),
         linkedin_url=_merge_value(eb.linkedin_url, nb.linkedin_url, "basic_info.linkedin_url", new_source, sources_dict),
         email=_merge_value(eb.email, nb.email, "basic_info.email", new_source, sources_dict),
+        personal_email=_merge_value(getattr(eb, "personal_email", None), getattr(nb, "personal_email", None), "basic_info.personal_email", new_source, sources_dict),
+        corporate_email=_merge_value(getattr(eb, "corporate_email", None), getattr(nb, "corporate_email", None), "basic_info.corporate_email", new_source, sources_dict),
         phone=_merge_value(eb.phone, nb.phone, "basic_info.phone", new_source, sources_dict),
         twitter_url=_merge_value(eb.twitter_url, nb.twitter_url, "basic_info.twitter_url", new_source, sources_dict),
         github_url=_merge_value(eb.github_url, nb.github_url, "basic_info.github_url", new_source, sources_dict),

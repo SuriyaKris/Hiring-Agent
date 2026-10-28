@@ -47,6 +47,7 @@ class Settings(BaseSettings):
     apollo_client_id: str = ""
     apollo_client_secret: str = ""
     apollo_redirect_uri: str = ""
+    apollo_webhook_url: str = ""
     serpapi_key: str = ""
     proxycurl_api_key: str = ""
 
@@ -92,6 +93,17 @@ class Settings(BaseSettings):
     def using_mock_data(self) -> bool:
         """Return True if Apollo API key is not configured."""
         return not bool(self.apollo_api_key and self.apollo_api_key.strip())
+
+    @property
+    def effective_apollo_webhook_url(self) -> str:
+        """Return the webhook URL to use for Apollo asynchronous phone enrichment."""
+        if self.apollo_webhook_url and self.apollo_webhook_url.strip():
+            return self.apollo_webhook_url.strip()
+        if self.apollo_redirect_uri and self.apollo_redirect_uri.startswith("http"):
+            from urllib.parse import urlparse
+            parsed = urlparse(self.apollo_redirect_uri)
+            return f"{parsed.scheme}://{parsed.netloc}/api/apollo/webhook"
+        return "https://late-obtuse-surprise.ngrok-free.dev/api/apollo/webhook"
 
 
     class Config:

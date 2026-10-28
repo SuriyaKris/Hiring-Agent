@@ -60,6 +60,8 @@ class CandidateRecord(Base):
     score_reasoning: Mapped[str] = mapped_column(Text, default="")
     recommended_action: Mapped[str] = mapped_column(String(50), default="")
     email: Mapped[str] = mapped_column(String(200), default="")
+    personal_email: Mapped[Optional[str]] = mapped_column(String(200), default=None)
+    corporate_email: Mapped[Optional[str]] = mapped_column(String(200), default=None)
     phone: Mapped[str] = mapped_column(String(50), default="")
     is_open_to_work: Mapped[bool] = mapped_column(Boolean, default=False)
     source: Mapped[str] = mapped_column(String(50), default="apollo")
@@ -121,9 +123,11 @@ async def init_db():
                 try:
                     from sqlalchemy import text
                     await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
+                    await conn.execute(text("ALTER TABLE candidates ADD COLUMN IF NOT EXISTS personal_email VARCHAR(200);"))
+                    await conn.execute(text("ALTER TABLE candidates ADD COLUMN IF NOT EXISTS corporate_email VARCHAR(200);"))
                 except Exception as e:
                     from loguru import logger
-                    logger.warning(f"Could not enable pgvector extension: {e}")
+                    logger.warning(f"Could not enable pgvector extension or update schema: {e}")
             await conn.run_sync(Base.metadata.create_all)
 
         # Seed default demo recruiter user if not present

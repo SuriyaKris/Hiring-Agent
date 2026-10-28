@@ -115,18 +115,25 @@ async def run_full_pipeline(
             if raw:
                 is_open = raw.get("is_likely_to_engage", False) or raw.get("is_open_to_work", False)
 
+            bi = c.profile.basic_info
+            personal_email = getattr(bi, "personal_email", None)
+            corporate_email = getattr(bi, "corporate_email", None)
+            primary_email = personal_email if personal_email else (bi.email or corporate_email or "")
+
             if existing_row:
                 # Update existing candidate record details
-                existing_row.full_name = c.profile.basic_info.full_name or existing_row.full_name
+                existing_row.full_name = bi.full_name or existing_row.full_name
                 existing_row.current_company = current_company
                 existing_row.current_title = current_title
-                existing_row.location = c.profile.basic_info.location or ""
+                existing_row.location = bi.location or ""
                 existing_row.fitment_score = c.fitment_score
                 existing_row.score_breakdown_json = json.dumps(c.score_breakdown.model_dump())
                 existing_row.score_reasoning = c.score_reasoning
                 existing_row.recommended_action = c.recommended_action
-                existing_row.email = c.profile.basic_info.email or ""
-                existing_row.phone = c.profile.basic_info.phone or ""
+                existing_row.email = primary_email
+                existing_row.personal_email = personal_email
+                existing_row.corporate_email = corporate_email
+                existing_row.phone = bi.phone or ""
                 existing_row.is_open_to_work = is_open
                 existing_row.raw_json = json.dumps(c.profile.model_dump(mode="json"))
                 existing_row.role_name = request.role_name
@@ -135,17 +142,19 @@ async def run_full_pipeline(
                 # Add new candidate record
                 db.add(CandidateRecord(
                     linkedin_url=linkedin,
-                    full_name=c.profile.basic_info.full_name or "Unknown",
-                    headline=c.profile.basic_info.headline or "",
+                    full_name=bi.full_name or "Unknown",
+                    headline=bi.headline or "",
                     current_company=current_company,
                     current_title=current_title,
-                    location=c.profile.basic_info.location or "",
+                    location=bi.location or "",
                     fitment_score=c.fitment_score,
                     score_breakdown_json=json.dumps(c.score_breakdown.model_dump()),
                     score_reasoning=c.score_reasoning,
                     recommended_action=c.recommended_action,
-                    email=c.profile.basic_info.email or "",
-                    phone=c.profile.basic_info.phone or "",
+                    email=primary_email,
+                    personal_email=personal_email,
+                    corporate_email=corporate_email,
+                    phone=bi.phone or "",
                     is_open_to_work=is_open,
                     source=result.data_source,
                     raw_json=json.dumps(c.profile.model_dump(mode="json")),

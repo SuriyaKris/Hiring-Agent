@@ -21,7 +21,7 @@ export default function Outreach({ candidate }) {
   useEffect(() => {
     if (candidate) {
       const name = profile?.basic_info?.full_name || profile?.full_name || ''
-      const email = profile?.basic_info?.email || profile?.email || ''
+      const email = profile?.basic_info?.personal_email || profile?.personal_email || profile?.basic_info?.email || profile?.email || ''
       setManualName(name)
       setManualEmail(email)
     } else {

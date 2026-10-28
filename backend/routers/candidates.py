@@ -4,8 +4,11 @@ from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 import json
+import asyncio
+import httpx
 from typing import List
 
+from config import get_settings
 from models.schemas import EnrichRequest, BulkEnrichPhoneRequest, RankRequest, ScoredCandidate, VerdictUpdate
 from db import get_db, CandidateRecord, SearchSessionRecord
 from routers.user_auth import get_current_user
@@ -71,6 +74,8 @@ async def enrich_candidate(request: EnrichRequest, db: AsyncSession = Depends(ge
             for r in rows:
                 r.full_name = profile.basic_info.full_name or r.full_name
                 r.email = profile.basic_info.email or r.email or ""
+                r.personal_email = getattr(profile.basic_info, "personal_email", None) or r.personal_email
+                r.corporate_email = getattr(profile.basic_info, "corporate_email", None) or r.corporate_email
                 r.phone = profile.basic_info.phone or r.phone or ""
                 if profile.experience and len(profile.experience) > 0:
                     r.current_title = profile.experience[0].title or r.current_title
@@ -90,12 +95,13 @@ async def enrich_candidate(request: EnrichRequest, db: AsyncSession = Depends(ge
 
 
 @router.post("/candidates/bulk-enrich-phone")
+@router.post("/candidates/bulk-enrich-contact")
 async def bulk_enrich_phone(
     request: BulkEnrichPhoneRequest,
     db: AsyncSession = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
-    """Enrich contact details and mobile numbers for shortlisted candidates using Apollo."""
+    """Enrich contact details, personal emails, and mobile numbers for shortlisted candidates using Apollo."""
     try:
         stmt = (
             select(CandidateRecord)
@@ -112,11 +118,11 @@ async def bulk_enrich_phone(
 
         from schemas.candidate_profile import BasicInfo, SchemaMetadata
         provider = ApolloProvider()
+        settings = get_settings()
 
-        updated_candidates = []
-        phones_found = 0
+        sem = asyncio.Semaphore(5)
 
-        for c in candidates_to_enrich:
+        async def _enrich_single(c):
             try:
                 profile_dict = json.loads(c.raw_json or "{}")
                 if "basic_info" in profile_dict:
@@ -133,37 +139,96 @@ async def bulk_enrich_phone(
                     )
 
                 if await provider.can_enrich(profile):
-                    enriched = await provider.enrich(profile)
-                    c.full_name = enriched.basic_info.full_name or c.full_name
-                    c.email = enriched.basic_info.email or c.email or ""
-                    c.phone = enriched.basic_info.phone or c.phone or ""
-                    if enriched.experience and len(enriched.experience) > 0:
-                        c.current_title = enriched.experience[0].title or c.current_title
-                        c.current_company = enriched.experience[0].company_name or c.current_company
-                    elif enriched.basic_info.headline:
-                        c.current_title = enriched.basic_info.headline or c.current_title
-                    if enriched.basic_info.location:
-                        c.location = enriched.basic_info.location
-                    if enriched.basic_info.headline:
-                        c.headline = enriched.basic_info.headline
-                    c.raw_json = json.dumps(enriched.model_dump(mode="json"))
-
-                    if c.phone:
-                        phones_found += 1
-
-                    updated_candidates.append({
-                        "linkedin_url": c.linkedin_url,
-                        "phone": c.phone,
-                        "email": c.email,
-                        "full_name": c.full_name
-                    })
+                    async with sem:
+                        # Step 1: Immediate match for email/details; phone reveal is dispatched with webhook
+                        enriched = await provider.enrich(profile, poll_phone=False)
+                        return c, enriched
             except Exception:
+                pass
+            return c, None
+
+        tasks = [_enrich_single(c) for c in candidates_to_enrich]
+        matched_pairs = await asyncio.gather(*tasks)
+
+        # Step 2: For candidates without a phone, gather their Apollo phone request_id and poll concurrently
+        pending_phone_candidates = []
+        for c, enriched in matched_pairs:
+            if enriched and not getattr(enriched.basic_info, "phone", None):
+                raw = enriched.metadata.raw_data or {}
+                req_id = raw.get("apollo_phone_request_id")
+                if req_id:
+                    pending_phone_candidates.append((c, enriched, req_id))
+
+        if pending_phone_candidates and settings.apollo_api_key:
+            # Wait 7 seconds for Apollo telecom carrier waterfall to complete
+            await asyncio.sleep(7.0)
+            headers = {
+                "Content-Type": "application/json",
+                "X-Api-Key": settings.apollo_api_key,
+            }
+            async with httpx.AsyncClient(timeout=15) as client:
+                async def _poll_req(c, enriched, req_id):
+                    try:
+                        resp = await client.get(f"https://api.apollo.io/v1/webhook_result/{req_id}", headers=headers)
+                        if resp.status_code == 200:
+                            data = resp.json()
+                            wr = data.get("webhook_result") or {}
+                            people = wr.get("people") or data.get("people") or []
+                            if people and isinstance(people, list):
+                                phones = people[0].get("phone_numbers") or []
+                                if phones:
+                                    phone_val = phones[0].get("sanitized_number") or phones[0].get("raw_number")
+                                    if phone_val:
+                                        enriched.basic_info.phone = str(phone_val).strip()
+                    except Exception:
+                        pass
+
+                poll_tasks = [_poll_req(c, enriched, req_id) for c, enriched, req_id in pending_phone_candidates]
+                await asyncio.gather(*poll_tasks)
+
+        # Step 3: Persist all updated profiles to DB
+        updated_candidates = []
+        personal_emails_found = 0
+        phones_found = 0
+
+        for c, enriched in matched_pairs:
+            if not enriched:
                 continue
+            c.full_name = enriched.basic_info.full_name or c.full_name
+            c.email = enriched.basic_info.email or c.email or ""
+            c.personal_email = getattr(enriched.basic_info, "personal_email", None) or c.personal_email
+            c.corporate_email = getattr(enriched.basic_info, "corporate_email", None) or c.corporate_email
+            c.phone = enriched.basic_info.phone or c.phone or ""
+            if enriched.experience and len(enriched.experience) > 0:
+                c.current_title = enriched.experience[0].title or c.current_title
+                c.current_company = enriched.experience[0].company_name or c.current_company
+            elif enriched.basic_info.headline:
+                c.current_title = enriched.basic_info.headline or c.current_title
+            if enriched.basic_info.location:
+                c.location = enriched.basic_info.location
+            if enriched.basic_info.headline:
+                c.headline = enriched.basic_info.headline
+            c.raw_json = json.dumps(enriched.model_dump(mode="json"))
+
+            if c.personal_email:
+                personal_emails_found += 1
+            if c.phone:
+                phones_found += 1
+
+            updated_candidates.append({
+                "linkedin_url": c.linkedin_url,
+                "phone": c.phone,
+                "email": c.email,
+                "personal_email": c.personal_email,
+                "corporate_email": c.corporate_email,
+                "full_name": c.full_name
+            })
 
         await db.commit()
         return {
             "status": "success",
             "total_candidates": len(candidates_to_enrich),
+            "personal_emails_found": personal_emails_found,
             "phones_found": phones_found,
             "updated": updated_candidates
         }
@@ -303,6 +368,34 @@ def _normalize_raw_json(raw_json_str: str, source: str) -> dict:
             data["persona"] = clean_headline
             
         email_val = data.get("basic_info", {}).get("email") or raw_data.get("email") or ""
+        personal_email_val = data.get("basic_info", {}).get("personal_email")
+        if not personal_email_val:
+            raw_p = raw_data.get("personal_emails") or []
+            if isinstance(raw_p, list) and raw_p:
+                personal_email_val = raw_p[0]
+            elif raw_data.get("personal_email"):
+                personal_email_val = raw_data.get("personal_email")
+
+        corporate_email_val = data.get("basic_info", {}).get("corporate_email") or raw_data.get("email") or ""
+
+        PERSONAL_DOMAINS = {
+            "gmail.com", "yahoo.com", "hotmail.com", "outlook.com", "icloud.com",
+            "me.com", "aol.com", "proton.me", "protonmail.com", "zoho.com",
+            "mail.com", "yandex.com", "gmx.com", "live.com", "msn.com"
+        }
+        is_personal = False
+        if personal_email_val:
+            is_personal = True
+            email_val = personal_email_val
+        elif email_val and any(email_val.lower().endswith("@" + d) for d in PERSONAL_DOMAINS):
+            is_personal = True
+            personal_email_val = email_val
+
+        data["personal_email"] = personal_email_val
+        data["corporate_email"] = corporate_email_val if corporate_email_val != personal_email_val else None
+        data["email"] = email_val
+        data["email_type"] = "personal" if is_personal else ("work" if email_val else "none")
+
         email_status_val = raw_data.get("email_status")
         if email_status_val and str(email_status_val).lower() not in ("none", "null", "", "n/a"):
             data["email_status"] = email_status_val
@@ -421,6 +514,9 @@ async def get_candidates(
             "score_reasoning": r.score_reasoning,
             "recommended_action": r.recommended_action,
             "email": r.email,
+            "personal_email": r.personal_email,
+            "corporate_email": r.corporate_email,
+            "email_type": "personal" if (r.personal_email and r.email == r.personal_email) else ("work" if r.email else "none"),
             "phone": r.phone,
             "is_open_to_work": r.is_open_to_work,
             "source": r.source,
@@ -458,6 +554,9 @@ async def get_candidate_details(candidate_id: int, db: AsyncSession = Depends(ge
         "score_breakdown": json.loads(row.score_breakdown_json or "{}"),
         "score_reasoning": row.score_reasoning,
         "email": row.email,
+        "personal_email": row.personal_email,
+        "corporate_email": row.corporate_email,
+        "email_type": "personal" if (row.personal_email and row.email == row.personal_email) else ("work" if row.email else "none"),
         "phone": row.phone,
         "source": row.source,
         "raw_details": _normalize_raw_json(row.raw_json, row.source)
@@ -535,7 +634,8 @@ async def export_candidates(
         # Headers
         headers = [
             "Full Name", "Fitment Score", "Current Title", "Current Company", "Location",
-            "Total Experience", "Email", "LinkedIn URL", "Recommended Action",
+            "Total Experience", "Email (Primary)", "Email Type", "Personal Email", "Corporate Email", "Phone",
+            "LinkedIn URL", "Recommended Action",
             "Title Match Score", "Skills Match Score", "CRM Background Score", "Job Stability Score",
             "Geography Score", "Bonuses Score", "Match Reasoning"
         ]
@@ -554,6 +654,7 @@ async def export_candidates(
             score_breakdown = json.loads(r.score_breakdown_json or "{}")
             profile_details = _normalize_raw_json(r.raw_json, r.source)
             total_exp = profile_details.get("total_experience_years", "N/A")
+            email_type = "Personal" if (r.personal_email and r.email == r.personal_email) else ("Work" if r.email else "N/A")
 
             row_data = [
                 r.full_name or "Unknown",
@@ -563,6 +664,10 @@ async def export_candidates(
                 r.location or "",
                 total_exp,
                 r.email or "",
+                email_type,
+                r.personal_email or "",
+                r.corporate_email or "",
+                r.phone or "",
                 r.linkedin_url or "",
                 r.recommended_action or "",
                 score_breakdown.get("title_match", 0),

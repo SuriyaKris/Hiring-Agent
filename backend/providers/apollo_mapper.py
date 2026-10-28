@@ -17,6 +17,22 @@ class ApolloNormalizer(BaseNormalizer):
         full_name = person.get("name") or f"{person.get('first_name', '')} {last_name}".strip() or "Unknown"
         title = person.get("title") or person.get("headline") or ""
 
+        # Resolve personal email vs corporate email
+        raw_personal = person.get("personal_emails") or []
+        personal_email = raw_personal[0] if (isinstance(raw_personal, list) and raw_personal) else (person.get("personal_email") or None)
+        work_email = person.get("email") or None
+
+        PERSONAL_EMAIL_DOMAINS = {
+            "gmail.com", "yahoo.com", "hotmail.com", "outlook.com", "icloud.com",
+            "me.com", "aol.com", "proton.me", "protonmail.com", "zoho.com",
+            "mail.com", "yandex.com", "gmx.com", "live.com", "msn.com"
+        }
+        if work_email and any(work_email.lower().endswith("@" + d) for d in PERSONAL_EMAIL_DOMAINS):
+            if not personal_email:
+                personal_email = work_email
+
+        primary_email = personal_email if personal_email else work_email
+
         basic_info = {
             "first_name": person.get("first_name") or None,
             "last_name": person.get("last_name") or person.get("last_name_obfuscated") or None,
@@ -24,7 +40,9 @@ class ApolloNormalizer(BaseNormalizer):
             "headline": person.get("headline") or title or None,
             "location": f"{person.get('city', '')}, {person.get('state', '')}, {person.get('country', '')}".strip(", ") or None,
             "linkedin_url": person.get("linkedin_url") or (f"https://linkedin.com/in/{person.get('id', '')}" if person.get("id") else None),
-            "email": person.get("email") or None,
+            "email": primary_email,
+            "personal_email": personal_email,
+            "corporate_email": work_email,
             "phone": person.get("phone_numbers", [{}])[0].get("sanitized_number") if person.get("phone_numbers") else None,
             "twitter_url": person.get("twitter_url") or None,
             "github_url": person.get("github_url") or None,

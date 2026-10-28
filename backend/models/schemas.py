@@ -48,6 +48,8 @@ class LegacyCandidateProfile(BaseModel):
     skills: list[str] = []
     is_open_to_work: bool = False
     email: Optional[str] = None
+    personal_email: Optional[str] = None
+    corporate_email: Optional[str] = None
     phone: Optional[str] = None
     source: str = "apollo"          # "apollo" | "mock" | "proxycurl"
     raw_data: Optional[dict] = None

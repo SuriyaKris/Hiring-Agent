@@ -38,6 +38,9 @@ function normalizeCandidate(c, defaultRole = '') {
   const location = c.location || basic.location || ''
   const linkedinUrl = c.linkedin_url || basic.linkedin_url || ''
   const email = c.email || basic.email || ''
+  const personalEmail = c.personal_email || basic.personal_email || profile.personal_email || ''
+  const corporateEmail = c.corporate_email || basic.corporate_email || profile.corporate_email || ''
+  const emailType = c.email_type || profile.email_type || (personalEmail && email === personalEmail ? 'personal' : (email ? 'work' : 'none'))
   const phone = c.phone || basic.phone || ''
   const isOpen = c.is_open_to_work ?? (profile.metadata?.raw_data?.is_open_to_work || false)
   const score = c.fitment_score ?? 0
@@ -56,6 +59,9 @@ function normalizeCandidate(c, defaultRole = '') {
     location: location,
     linkedin_url: linkedinUrl,
     email: email,
+    personal_email: personalEmail,
+    corporate_email: corporateEmail,
+    email_type: emailType,
     phone: phone,
     is_open_to_work: isOpen,
     fitment_score: score,
@@ -66,11 +72,16 @@ function normalizeCandidate(c, defaultRole = '') {
     recruiter_verdict: verdict,
     profile_details: {
       ...profile,
+      personal_email: personalEmail,
+      corporate_email: corporateEmail,
+      email_type: emailType,
       basic_info: {
         ...basic,
         full_name: fullName,
         linkedin_url: linkedinUrl,
         email: email,
+        personal_email: personalEmail,
+        corporate_email: corporateEmail,
         phone: phone,
         location: location,
         headline: basic.headline || currentTitle,
@@ -297,14 +308,16 @@ export default function Candidates({
 
   const enrichCandidate = async (linkedinUrl) => {
     setEnrichingUrl(linkedinUrl)
-    const toastId = toast.loading('Looking up contact & mobile number via Apollo...')
+    const toastId = toast.loading('Looking up personal email & contact details via Apollo...')
     try {
       const { data } = await axios.post('/api/candidates/enrich', { candidate_linkedin_url: linkedinUrl })
       await load()
-      if (data.basic_info?.phone) {
-        toast.success(`Mobile found: ${data.basic_info.phone}`, { id: toastId, duration: 4000 })
+      if (data.basic_info?.personal_email) {
+        toast.success(`Personal email found: ${data.basic_info.personal_email}`, { id: toastId, duration: 5000 })
+      } else if (data.basic_info?.phone) {
+        toast.success(`Contact phone found: ${data.basic_info.phone}`, { id: toastId, duration: 4000 })
       } else if (data.basic_info?.email) {
-        toast.success(`Email verified (${data.basic_info.email}), no direct mobile on file in Apollo.`, { id: toastId, duration: 5000 })
+        toast.success(`Email active (${data.basic_info.email}), no personal email on file in Apollo.`, { id: toastId, duration: 5000 })
       } else {
         toast.success('Profile details refreshed from Apollo.', { id: toastId })
       }
@@ -318,7 +331,7 @@ export default function Candidates({
 
   const handleBulkEnrichPhones = async () => {
     setBulkPhoneLoading(true)
-    const toastId = toast.loading('Looking up mobile numbers from Apollo for shortlisted candidates...')
+    const toastId = toast.loading('Looking up personal emails & contacts from Apollo for shortlisted candidates...')
     try {
       const payload = {
         session_id: activeSessionId || null,
@@ -326,13 +339,15 @@ export default function Candidates({
       }
       const { data } = await axios.post('/api/candidates/bulk-enrich-phone', payload)
       await load()
+      const personalCount = data.personal_emails_found || 0
+      const phoneCount = data.phones_found || 0
       toast.success(
-        `Completed! Found ${data.phones_found} mobile number(s) across ${data.total_candidates} shortlisted candidate(s).`,
+        `Completed! Found ${personalCount} personal email(s)${phoneCount > 0 ? ` and ${phoneCount} phone(s)` : ''} across ${data.total_candidates} shortlisted candidate(s).`,
         { id: toastId, duration: 6000 }
       )
       setBulkPhoneModalOpen(false)
     } catch (err) {
-      const errorMsg = err.response?.data?.detail || 'Bulk phone enrichment failed.'
+      const errorMsg = err.response?.data?.detail || 'Bulk contact enrichment failed.'
       toast.error(errorMsg, { id: toastId })
     } finally {
       setBulkPhoneLoading(false)
@@ -465,9 +480,9 @@ export default function Candidates({
             setBulkPhoneModalOpen(true)
           }}
           className="bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm outline-none cursor-pointer"
-          title="Look up mobile numbers for shortlisted candidates via Apollo"
+          title="Look up personal email addresses & contacts for shortlisted candidates via Apollo"
         >
-          📞 Fetch Mobile ({shortlistedWithoutPhone.length})
+          ✨ Fetch Personal Emails ({shortlistedCandidates.length})
         </button>
         <button 
           onClick={handleExport} 
@@ -659,9 +674,31 @@ export default function Candidates({
                   <div className="shrink-0 flex flex-col gap-2 items-end">
                     <div className="flex flex-col items-end gap-1.5">
                       {c.email && (
-                        <span className="text-[10px] text-green-700 font-bold bg-green-50 px-2.5 py-1 rounded-lg border border-green-100 inline-flex items-center gap-1" title={c.email}>
-                          ✉️ {c.email}
-                        </span>
+                        <div className="flex flex-col items-end gap-0.5">
+                          <span 
+                            className={`text-[10px] font-bold px-2.5 py-1 rounded-lg border inline-flex items-center gap-1.5 shadow-2xs ${
+                              c.email_type === 'personal' || (c.personal_email && c.personal_email === c.email)
+                                ? 'text-indigo-800 bg-indigo-50 border-indigo-200' 
+                                : 'text-emerald-800 bg-emerald-50 border-emerald-200'
+                            }`} 
+                            title={c.email_type === 'personal' || (c.personal_email && c.personal_email === c.email) ? `Personal Email: ${c.email}` : `Work Email: ${c.email}`}
+                          >
+                            <span>✉️</span>
+                            <span>{c.email}</span>
+                            <span className={`text-[8.5px] px-1.5 py-0.2 rounded font-extrabold uppercase tracking-wide ${
+                              c.email_type === 'personal' || (c.personal_email && c.personal_email === c.email)
+                                ? 'bg-indigo-200/80 text-indigo-900'
+                                : 'bg-emerald-200/80 text-emerald-900'
+                            }`}>
+                              {c.email_type === 'personal' || (c.personal_email && c.personal_email === c.email) ? 'Personal' : 'Work'}
+                            </span>
+                          </span>
+                          {c.corporate_email && c.corporate_email !== c.email && (
+                            <span className="text-[9px] text-slate-400 font-medium px-1" title={`Work email on file: ${c.corporate_email}`}>
+                              Work: {c.corporate_email}
+                            </span>
+                          )}
+                        </div>
                       )}
                       {c.phone ? (
                         <a 
@@ -671,23 +708,33 @@ export default function Candidates({
                         >
                           📞 {c.phone}
                         </a>
-                      ) : c.email ? (
-                        <button
-                          onClick={() => enrichCandidate(c.linkedin_url)}
-                          disabled={enrichingUrl === c.linkedin_url}
-                          className="text-[10px] bg-slate-50 hover:bg-slate-100 text-slate-500 hover:text-slate-700 px-2.5 py-1 rounded-lg font-bold border border-slate-200 transition-all outline-none flex items-center gap-1 cursor-pointer"
-                          title="Apollo verified the work email, but has no direct mobile on file for this candidate. Click to retry lookup."
-                        >
-                          {enrichingUrl === c.linkedin_url ? '↻ Checking...' : '📞 No mobile on file'}
-                        </button>
                       ) : (
                         <button
                           onClick={() => enrichCandidate(c.linkedin_url)}
                           disabled={enrichingUrl === c.linkedin_url}
-                          className="text-[10px] bg-blue-50 hover:bg-blue-100 text-[#0B57D0] px-2.5 py-1 rounded-lg font-bold border border-blue-200 transition-all outline-none flex items-center gap-1 cursor-pointer active:scale-95"
-                          title="Look up verified contact details and mobile number via Apollo"
+                          className={`text-[10px] px-2.5 py-1 rounded-lg font-bold border transition-all outline-none flex items-center gap-1 cursor-pointer active:scale-95 ${
+                            c.email_type === 'personal' || c.personal_email
+                              ? 'bg-slate-50 hover:bg-slate-100 text-slate-500 hover:text-slate-700 border-slate-200'
+                              : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border-indigo-200'
+                          }`}
+                          title={c.email_type === 'personal' || c.personal_email ? 'Personal email verified. Click to re-check contact details.' : 'Click to fetch candidate\'s personal email and contact details from Apollo'}
                         >
-                          {enrichingUrl === c.linkedin_url ? '↻ Revealing...' : '📞 Reveal Mobile'}
+                          {enrichingUrl === c.linkedin_url ? (
+                            <>
+                              <span className="animate-spin">↻</span>
+                              <span>Checking Apollo...</span>
+                            </>
+                          ) : c.email_type === 'personal' || c.personal_email ? (
+                            <>
+                              <span>✓</span>
+                              <span>Personal Email Active</span>
+                            </>
+                          ) : (
+                            <>
+                              <span>✨</span>
+                              <span>Fetch Personal Mail</span>
+                            </>
+                          )}
                         </button>
                       )}
                     </div>
@@ -1078,14 +1125,14 @@ export default function Candidates({
         document.body
       )}
 
-      {/* Bulk Phone Enrichment Modal */}
+      {/* Bulk Contact & Personal Email Enrichment Modal */}
       {bulkPhoneModalOpen && createPortal(
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-5 shadow-2xl border border-slate-200">
             <div className="flex justify-between items-center border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2">
-                <span className="text-xl">📞</span>
-                <h3 className="text-base font-bold text-slate-900">Fetch Mobile Numbers</h3>
+                <span className="text-xl">✨</span>
+                <h3 className="text-base font-bold text-slate-900">Fetch Personal Emails & Contacts</h3>
               </div>
               <button 
                 type="button"
@@ -1099,15 +1146,15 @@ export default function Candidates({
 
             <div className="space-y-3 text-xs text-slate-650 leading-relaxed">
               <p>
-                You are about to look up mobile phone numbers from Apollo for{' '}
-                <strong className="text-slate-900">{shortlistedWithoutPhone.length} shortlisted candidate(s)</strong> who currently don't have a phone on file.
+                You are about to look up verified personal email addresses and contact information from Apollo for{' '}
+                <strong className="text-slate-900">{shortlistedCandidates.length} shortlisted candidate(s)</strong>.
               </p>
-              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-amber-800 flex items-start gap-2.5">
-                <span className="text-base shrink-0">⚠️</span>
+              <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-3 text-indigo-900 flex items-start gap-2.5">
+                <span className="text-base shrink-0">✉️</span>
                 <div>
-                  <p className="font-bold text-[11px]">Apollo Credit Information</p>
-                  <p className="text-[11px] mt-0.5 leading-relaxed text-amber-750">
-                    Apollo consumes Phone / Mobile Credits for each candidate contact revealed. Uncovered numbers will be saved in PostgreSQL and displayed on the candidate cards.
+                  <p className="font-bold text-[11px]">Personal Email Priority</p>
+                  <p className="text-[11px] mt-0.5 leading-relaxed text-indigo-800">
+                    If a candidate has a personal email (e.g. Gmail, Yahoo), it will be retrieved and prioritized over their corporate email for higher outreach response rates. If unavailable, the work email will be retained.
                   </p>
                 </div>
               </div>
@@ -1124,7 +1171,7 @@ export default function Candidates({
               </button>
               <button 
                 type="button"
-                disabled={bulkPhoneLoading || shortlistedWithoutPhone.length === 0}
+                disabled={bulkPhoneLoading || shortlistedCandidates.length === 0}
                 onClick={handleBulkEnrichPhones}
                 className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white px-5 py-2.5 rounded-xl text-xs font-bold transition-all shadow-md flex items-center gap-2 outline-none cursor-pointer active:scale-95"
               >
@@ -1135,8 +1182,8 @@ export default function Candidates({
                   </>
                 ) : (
                   <>
-                    <span>📞</span>
-                    <span>Confirm & Fetch Numbers ({shortlistedWithoutPhone.length})</span>
+                    <span>✨</span>
+                    <span>Confirm & Fetch Contacts ({shortlistedCandidates.length})</span>
                   </>
                 )}
               </button>

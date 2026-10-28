@@ -35,7 +35,13 @@ def merge_profiles(p1: CandidateProfile, p2: CandidateProfile) -> CandidateProfi
     b2 = p2.basic_info
 
     # Basic info fields fallback
-    if not b1.email and b2.email:
+    if not getattr(b1, "personal_email", None) and getattr(b2, "personal_email", None):
+        b1.personal_email = b2.personal_email
+    if not getattr(b1, "corporate_email", None) and getattr(b2, "corporate_email", None):
+        b1.corporate_email = b2.corporate_email
+    if b1.personal_email:
+        b1.email = b1.personal_email
+    elif not b1.email and b2.email:
         b1.email = b2.email
     if not b1.phone and b2.phone:
         b1.phone = b2.phone

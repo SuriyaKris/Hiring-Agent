@@ -52,8 +52,34 @@ def get_apollo_auth() -> tuple[dict, bool]:
     return {}, False
 
 
+PERSONAL_EMAIL_DOMAINS = {
+    "gmail.com", "yahoo.com", "hotmail.com", "outlook.com", "icloud.com",
+    "me.com", "aol.com", "proton.me", "protonmail.com", "zoho.com",
+    "mail.com", "yandex.com", "gmx.com", "live.com", "msn.com"
+}
+
+
+def resolve_candidate_emails(raw: dict) -> tuple[str | None, str | None, str | None]:
+    """
+    Returns (primary_email, personal_email, corporate_email)
+    Prioritizes personal email if available, else available corporate/work email.
+    """
+    raw_personal = raw.get("personal_emails") or []
+    personal_email = raw_personal[0] if (isinstance(raw_personal, list) and raw_personal) else (raw.get("personal_email") or None)
+    work_email = raw.get("email") or None
+
+    if work_email and any(work_email.lower().endswith("@" + d) for d in PERSONAL_EMAIL_DOMAINS):
+        if not personal_email:
+            personal_email = work_email
+
+    primary_email = personal_email if personal_email else work_email
+    corporate_email = work_email if work_email != personal_email else None
+    return primary_email, personal_email, corporate_email or work_email
+
+
 def _to_candidate_profile(raw: dict) -> LegacyCandidateProfile:
     """Convert a raw dict from Apollo to LegacyCandidateProfile."""
+    primary_email, personal_email, corporate_email = resolve_candidate_emails(raw)
     return LegacyCandidateProfile(
         linkedin_url=raw.get("linkedin_url", ""),
         full_name=raw.get("full_name", "Unknown"),
@@ -64,7 +90,9 @@ def _to_candidate_profile(raw: dict) -> LegacyCandidateProfile:
         years_experience=raw.get("years_experience"),
         skills=raw.get("skills", []),
         is_open_to_work=raw.get("is_open_to_work", False),
-        email=raw.get("email"),
+        email=primary_email,
+        personal_email=personal_email,
+        corporate_email=corporate_email,
         phone=raw.get("phone"),
         source=raw.get("source", "apollo"),
         raw_data=raw,
@@ -214,6 +242,7 @@ async def apollo_search(spec: JDSearchSpec, max_results: int = 25) -> list[Legac
         # Handle company name fallback
         org_name = person.get("organization_name") or person.get("organization", {}).get("name") or current_job.get("organization_name") or ""
 
+        primary_email, personal_email, corporate_email = resolve_candidate_emails(person)
         profiles.append(LegacyCandidateProfile(
             linkedin_url=person.get("linkedin_url", "") or f"https://linkedin.com/in/{person.get('id', '')}",
             full_name=name,
@@ -224,7 +253,9 @@ async def apollo_search(spec: JDSearchSpec, max_results: int = 25) -> list[Legac
             years_experience=float(years) if years else None,
             skills=[s.get("name", "") for s in person.get("skills", [])],
             is_open_to_work=person.get("is_likely_to_engage", False),
-            email=person.get("email"),
+            email=primary_email,
+            personal_email=personal_email,
+            corporate_email=corporate_email,
             phone=person.get("phone_numbers", [{}])[0].get("sanitized_number") if person.get("phone_numbers") else None,
             source="apollo",
             raw_data=person,
