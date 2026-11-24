@@ -69,6 +69,18 @@ app.include_router(apollo.router, prefix="/api", tags=["Apollo"])
 app.include_router(candidates.router, prefix="/api", tags=["Candidates"])
 
 
+@app.get("/")
+@app.head("/")
+async def root():
+    return {
+        "name": "4CECloud AI Hiring Agent API",
+        "status": "online",
+        "version": "2.0.0",
+        "docs": "/docs",
+        "health": "/health"
+    }
+
+
 @app.get("/health")
 async def health():
     return {
