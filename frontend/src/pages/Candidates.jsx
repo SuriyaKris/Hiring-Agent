@@ -312,12 +312,14 @@ export default function Candidates({
     try {
       const { data } = await axios.post('/api/candidates/enrich', { candidate_linkedin_url: linkedinUrl })
       await load()
-      if (data.basic_info?.personal_email) {
-        toast.success(`Personal email found: ${data.basic_info.personal_email}`, { id: toastId, duration: 5000 })
+      if (data.basic_info?.phone && data.basic_info?.personal_email) {
+        toast.success(`Found phone (${data.basic_info.phone}) & personal email!`, { id: toastId, duration: 5000 })
       } else if (data.basic_info?.phone) {
-        toast.success(`Contact phone found: ${data.basic_info.phone}`, { id: toastId, duration: 4000 })
+        toast.success(`Contact phone found: ${data.basic_info.phone}`, { id: toastId, duration: 5000 })
+      } else if (data.basic_info?.personal_email) {
+        toast.success(`Personal email found: ${data.basic_info.personal_email}`, { id: toastId, duration: 5000 })
       } else if (data.basic_info?.email) {
-        toast.success(`Email active (${data.basic_info.email}), no personal email on file in Apollo.`, { id: toastId, duration: 5000 })
+        toast.success(`Email active (${data.basic_info.email}), no mobile number listed on Apollo.`, { id: toastId, duration: 5000 })
       } else {
         toast.success('Profile details refreshed from Apollo.', { id: toastId })
       }
@@ -713,21 +715,26 @@ export default function Candidates({
                           onClick={() => enrichCandidate(c.linkedin_url)}
                           disabled={enrichingUrl === c.linkedin_url}
                           className={`text-[10px] px-2.5 py-1 rounded-lg font-bold border transition-all outline-none flex items-center gap-1 cursor-pointer active:scale-95 ${
-                            c.email_type === 'personal' || c.personal_email
+                            (c.email_type === 'personal' || c.personal_email) && c.phone
                               ? 'bg-slate-50 hover:bg-slate-100 text-slate-500 hover:text-slate-700 border-slate-200'
                               : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border-indigo-200'
                           }`}
-                          title={c.email_type === 'personal' || c.personal_email ? 'Personal email verified. Click to re-check contact details.' : 'Click to fetch candidate\'s personal email and contact details from Apollo'}
+                          title={(c.email_type === 'personal' || c.personal_email) && c.phone ? 'Personal email and phone verified. Click to refresh.' : 'Click to fetch candidate\'s personal email and phone number from Apollo'}
                         >
                           {enrichingUrl === c.linkedin_url ? (
                             <>
                               <span className="animate-spin">↻</span>
-                              <span>Checking Apollo...</span>
+                              <span>Fetching from Apollo...</span>
                             </>
-                          ) : c.email_type === 'personal' || c.personal_email ? (
+                          ) : (c.email_type === 'personal' || c.personal_email) && c.phone ? (
                             <>
                               <span>✓</span>
-                              <span>Personal Email Active</span>
+                              <span>Contact & Phone Active</span>
+                            </>
+                          ) : !c.phone ? (
+                            <>
+                              <span>📞</span>
+                              <span>Fetch Phone / Contact</span>
                             </>
                           ) : (
                             <>
