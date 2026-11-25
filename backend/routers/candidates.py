@@ -479,19 +479,26 @@ async def get_candidates(
     db: AsyncSession = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
-    """Return stored candidates sorted by score, optionally filtered by session_id or role_name."""
+    """Return stored candidates sorted by score, strictly scoped to the logged-in user's search sessions."""
     sess_res = await db.execute(
         select(SearchSessionRecord.session_id).where(SearchSessionRecord.user_id == current_user.id)
     )
     user_session_ids = [r[0] for r in sess_res.all()]
 
-    stmt = select(CandidateRecord).where(CandidateRecord.source != "mock")
+    # If this user has not run any search sessions yet, return an empty list
+    if not user_session_ids:
+        return []
+
+    stmt = select(CandidateRecord).where(
+        CandidateRecord.source != "mock",
+        CandidateRecord.search_session_id.in_(user_session_ids)
+    )
 
     if session_id and session_id.strip() and session_id.strip().lower() != "all":
-        # Specific search session requested
+        # Verify requested session belongs to this user
+        if session_id.strip() not in user_session_ids:
+            return []
         stmt = stmt.where(CandidateRecord.search_session_id == session_id.strip())
-    elif user_session_ids:
-        stmt = stmt.where(CandidateRecord.search_session_id.in_(user_session_ids))
 
     if role_name and role_name.strip() and role_name.strip().lower() != "all":
         stmt = stmt.where(CandidateRecord.role_name == role_name.strip())
