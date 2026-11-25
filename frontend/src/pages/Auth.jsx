@@ -74,7 +74,9 @@ export default function Auth({ onLoginSuccess }) {
       }
     } catch (err) {
       const errorDetail = err.response?.data?.detail
-      if (err.response?.status === 401) {
+      if (err.code === 'ECONNABORTED' || err.message?.includes('timeout')) {
+        toast.error('Backend request timed out. The server may be waking up or port-mismatched. Please check server settings.')
+      } else if (err.response?.status === 401) {
         toast.error('Incorrect email or password. If new, click "Register" or use "Quick Demo Login".')
       } else {
         toast.error(errorDetail || 'Authentication failed. Please check your credentials.')

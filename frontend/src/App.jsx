@@ -13,6 +13,7 @@ if (rawApiUrl) {
   axios.defaults.baseURL = rawApiUrl.replace(/\/+$/, '')
 }
 axios.defaults.withCredentials = true
+axios.defaults.timeout = 30000
 
 export default function App() {
   const [token, setToken] = useState(localStorage.getItem('token'))
