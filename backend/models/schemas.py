@@ -13,9 +13,9 @@ class JDParseRequest(BaseModel):
 
 
 class JDSearchSpec(BaseModel):
-    primary_titles: list[str]
-    related_titles: list[str]
-    required_skills: list[str]
+    primary_titles: list[str] = []
+    related_titles: list[str] = []
+    required_skills: list[str] = []
     nice_to_have_skills: list[str] = []
     target_companies: list[str] = []
     excluded_companies: list[str] = []
@@ -31,6 +31,8 @@ class JDSearchSpec(BaseModel):
     jd_requirements_text: Optional[str] = None
     role_name: Optional[str] = None
     currently_using_technology_uids: list[str] = []
+
+    model_config = {"extra": "ignore"}
 
 
 
@@ -126,13 +128,15 @@ class OutreachDraft(BaseModel):
 # ── Pipeline (full auto run) ─────────────────────────────────
 
 class PipelineRequest(BaseModel):
-    jd_text: str
-    role_name: str
+    jd_text: str = ""
+    role_name: str = ""
     recruiter_name: str = "Meghana"
     company_name: str = "4CECloud Labs"
     max_candidates: int = Field(20, le=50)
     data_source: str = "apollo"
     spec: Optional[JDSearchSpec] = None
+
+    model_config = {"extra": "ignore"}
 
 
 class PipelineResult(BaseModel):

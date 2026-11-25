@@ -53,7 +53,13 @@ async def run_full_pipeline(
         from services.deduplication_service import get_excluded_identities
 
         spec_hash = hash_spec(spec)
-        spec_vector = get_spec_embedding(spec)
+        spec_vector = None
+        try:
+            spec_vector = get_spec_embedding(spec)
+        except Exception as e:
+            from loguru import logger
+            logger.warning(f"Embedding computation skipped: {e}")
+
         track_id = await find_or_create_role_track(db, current_user.id, spec_hash, spec_vector)
         exclusion_identities = await get_excluded_identities(db, track_id)
 
@@ -69,6 +75,7 @@ async def run_full_pipeline(
             role_track_id=str(track_id),
         )
 
+        is_postgres = settings.database_url.startswith("postgresql")
         db.add(SearchSessionRecord(
             session_id=result.run_id,
             role_name=request.role_name,
@@ -80,7 +87,7 @@ async def run_full_pipeline(
             user_id=current_user.id,
             role_track_id=track_id,
             spec_fingerprint_hash=spec_hash,
-            spec_embedding=spec_vector,
+            spec_embedding=spec_vector if (is_postgres and spec_vector) else None,
         ))
 
         # Store candidate details in SQLite database scoped to this search session

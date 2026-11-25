@@ -143,6 +143,7 @@ export default function Pipeline({ onCandidatesReady }) {
     setResult(null)
     try {
       const activeRole = roleName || (spec?.primary_titles?.[0] || 'Target Role')
+      const payloadSpec = spec ? { ...spec, role_name: activeRole } : null
       const { data } = await axios.post('/api/pipeline/run', {
         jd_text: jdText,
         role_name: activeRole,
@@ -150,13 +151,34 @@ export default function Pipeline({ onCandidatesReady }) {
         company_name: '4CECloud Labs',
         max_candidates: maxCandidates,
         data_source: 'apollo',
-        spec: spec,
+        spec: payloadSpec,
+      }, {
+        timeout: 300000 // 5-minute timeout for LangGraph candidate search & scoring
       })
       setResult(data)
       setStep('input')
       toast.success(`Pipeline complete! ${data.total_sourced} candidates scored.`)
+      if (onCandidatesReady) {
+        onCandidatesReady({
+          sessionId: data.run_id,
+          roleName: data.role_name || activeRole,
+          candidates: data.candidates || []
+        })
+      }
     } catch (err) {
-      toast.error(err.response?.data?.detail || 'Pipeline failed.')
+      if (err.code === 'ECONNABORTED' || err.message?.includes('timeout')) {
+        toast.error('Search request timed out. Please try searching with fewer candidates or check backend.')
+      } else {
+        const detail = err.response?.data?.detail
+        if (Array.isArray(detail)) {
+          const msg = detail.map(d => d.msg || (d.loc ? `${d.loc.slice(-1)}: ${d.msg}` : '')).filter(Boolean).join(', ')
+          toast.error(msg || 'Invalid criteria parameters.')
+        } else if (typeof detail === 'string') {
+          toast.error(detail)
+        } else {
+          toast.error(err.response?.data?.message || err.message || 'Pipeline failed.')
+        }
+      }
     } finally {
       setLoading(false)
     }

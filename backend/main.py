@@ -28,6 +28,17 @@ async def lifespan(app: FastAPI):
     logger.info(f"Database engine: {db_type}")
     await init_db()
     logger.info("Database ready.")
+
+    def _warmup_embeddings():
+        try:
+            from nlp.embedding_model import get_embedding_model
+            get_embedding_model()
+            logger.info("SentenceTransformer model pre-warmed successfully.")
+        except Exception as e:
+            logger.warning(f"Embedding model warmup skipped: {e}")
+
+    asyncio.create_task(asyncio.to_thread(_warmup_embeddings))
+
     yield
     logger.info("Shutting down.")
 

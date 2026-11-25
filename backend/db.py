@@ -120,14 +120,37 @@ async def init_db():
     try:
         async with engine.begin() as conn:
             if settings.database_url.startswith("postgresql"):
+                from sqlalchemy import text
                 try:
-                    from sqlalchemy import text
                     await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
-                    await conn.execute(text("ALTER TABLE candidates ADD COLUMN IF NOT EXISTS personal_email VARCHAR(200);"))
-                    await conn.execute(text("ALTER TABLE candidates ADD COLUMN IF NOT EXISTS corporate_email VARCHAR(200);"))
                 except Exception as e:
                     from loguru import logger
-                    logger.warning(f"Could not enable pgvector extension or update schema: {e}")
+                    logger.warning(f"Could not enable pgvector extension: {e}")
+
+                alter_statements = [
+                    "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS personal_email VARCHAR(200);",
+                    "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS corporate_email VARCHAR(200);",
+                    "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS apollo_person_id VARCHAR(100);",
+                    "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS apollo_organization_id VARCHAR(100);",
+                    "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS indeed_url VARCHAR(500);",
+                    "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS candidate_origin VARCHAR(50) DEFAULT 'apollo';",
+                    "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS source_confidence FLOAT DEFAULT 1.0;",
+                    "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS search_session_id VARCHAR(100);",
+                    "ALTER TABLE search_sessions ADD COLUMN IF NOT EXISTS user_id UUID;",
+                    "ALTER TABLE search_sessions ADD COLUMN IF NOT EXISTS role_track_id UUID;",
+                    "ALTER TABLE search_sessions ADD COLUMN IF NOT EXISTS spec_fingerprint_hash TEXT;",
+                ]
+                for stmt in alter_statements:
+                    try:
+                        await conn.execute(text(stmt))
+                    except Exception:
+                        pass
+
+                try:
+                    await conn.execute(text("ALTER TABLE search_sessions ADD COLUMN IF NOT EXISTS spec_embedding VECTOR(384);"))
+                except Exception:
+                    pass
+
             await conn.run_sync(Base.metadata.create_all)
 
         # Seed default demo recruiter user if not present

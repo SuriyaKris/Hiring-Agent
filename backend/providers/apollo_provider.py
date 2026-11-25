@@ -84,13 +84,13 @@ class ApolloProvider(BaseProvider):
             """Poll Apollo /v1/webhook_result/{request_id} for phone waterfall results."""
             if not req_id:
                 return []
-            for attempt in range(2):
-                await asyncio.sleep(7 if attempt == 0 else 5)
+            for attempt in range(1):
+                await asyncio.sleep(2)
                 try:
                     poll_resp = await client.get(
                         f"https://api.apollo.io/v1/webhook_result/{req_id}",
                         headers=headers,
-                        timeout=12.0
+                        timeout=5.0
                     )
                     if poll_resp.status_code == 200:
                         poll_data = poll_resp.json()
@@ -103,7 +103,7 @@ class ApolloProvider(BaseProvider):
                     elif poll_resp.status_code == 404:
                         continue
                 except Exception as ex:
-                    logger.debug(f"[Apollo Provider] Phone poll attempt {attempt+1} error: {ex}")
+                    logger.debug(f"[Apollo Provider] Phone poll error: {ex}")
             return []
 
         try:
