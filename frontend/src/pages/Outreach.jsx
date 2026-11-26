@@ -79,7 +79,7 @@ export default function Outreach({ candidate }) {
   }
 
   return (
-    <div className="space-y-6 select-none animate-fade-in-up">
+    <div className="space-y-6 animate-fade-in-up select-text">
       {/* Title Header */}
       <div className="flex justify-between items-center px-1">
         <div>

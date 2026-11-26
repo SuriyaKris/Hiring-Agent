@@ -127,6 +127,7 @@ export default function Candidates({
   const [bulkPhoneModalOpen, setBulkPhoneModalOpen] = useState(false)
   const [bulkPhoneLoading, setBulkPhoneLoading] = useState(false)
   const [enrichingUrl, setEnrichingUrl] = useState(null)
+  const [exporting, setExporting] = useState(false)
 
   const shortlistedCandidates = candidates.filter(c => c.recruiter_verdict?.toLowerCase() === 'shortlist')
   const shortlistedWithoutPhone = shortlistedCandidates.filter(c => !c.phone || !c.phone.trim())
@@ -283,19 +284,82 @@ export default function Candidates({
     }
   }, [activeSessionId])
 
-  const handleExport = () => {
-    let exportUrl = '/api/candidates/export'
-    const params = new URLSearchParams()
-    if (activeSessionId) {
-      params.append('session_id', activeSessionId)
-    } else if (roleFilter && roleFilter !== 'all') {
-      params.append('role_name', roleFilter)
+  const handleExport = async () => {
+    if (exporting) return
+    setExporting(true)
+    const toastId = toast.loading('Exporting candidates to Excel...')
+    try {
+      const params = {}
+      if (activeSessionId && activeSessionId !== 'all') {
+        params.session_id = activeSessionId
+      }
+      if (roleFilter && roleFilter !== 'all') {
+        params.role_name = roleFilter
+      }
+
+      const response = await axios.get('/api/candidates/export', {
+        params,
+        responseType: 'blob',
+        timeout: 60000,
+      })
+
+      const blob = new Blob([response.data], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      })
+      const downloadUrl = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = downloadUrl
+      const rolePrefix = (roleFilter || roleName || 'candidates')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '_')
+        .slice(0, 30)
+      link.setAttribute('download', `${rolePrefix}_export.xlsx`)
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(downloadUrl)
+
+      toast.success('Excel export downloaded successfully!', { id: toastId })
+    } catch (err) {
+      console.error('Export failed:', err)
+      toast.error('Failed to export candidates. Please try again.', { id: toastId })
+    } finally {
+      setExporting(false)
     }
-    const queryString = params.toString()
-    if (queryString) {
-      exportUrl += `?${queryString}`
-    }
-    window.open(exportUrl, '_blank')
+  }
+
+  const copyCandidateDetails = (candidate) => {
+    const details = candidate.profile_details || {}
+    const expYears = details.total_experience_years || (candidate.years_experience ? `${candidate.years_experience} yrs` : 'N/A')
+    const textToCopy = `Candidate Profile:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Full Name: ${candidate.full_name || 'N/A'}
+Current Title: ${candidate.current_title || details.headline || 'N/A'}
+Company: ${candidate.current_company || details.company?.name || 'N/A'}
+Location: ${candidate.location || details.basic_info?.location || 'N/A'}
+Fitment Score: ${candidate.fitment_score ? `${Math.round(candidate.fitment_score)}%` : 'N/A'}
+Recommended Action: ${candidate.recommended_action || 'N/A'}
+
+Contact Details:
+Email: ${candidate.email || 'N/A'} (${candidate.email_type || 'N/A'})
+Mobile / Phone: ${candidate.phone || 'Unavailable on Apollo'}
+LinkedIn: ${candidate.linkedin_url || 'N/A'}
+
+Experience & Background:
+Total Experience: ${expYears}
+Time in Current Role: ${details.time_in_current_role || 'N/A'}
+Time Zone: ${details.time_zone || 'N/A'}
+Territories: ${details.territories || 'N/A'}
+
+AI Match Reasoning:
+${candidate.score_reasoning || 'N/A'}
+
+About / Summary:
+${details.summary?.about || 'N/A'}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`
+
+    navigator.clipboard.writeText(textToCopy)
+    toast.success(`Copied ${candidate.full_name}'s details to clipboard!`)
   }
 
   const setVerdict = async (linkedinUrl, verdict) => {
@@ -394,7 +458,7 @@ export default function Candidates({
   if (loading) return <div className="text-center py-12 text-slate-500 text-sm">Loading candidates...</div>
 
   return (
-    <div className="space-y-5 select-none animate-fade-in-up">
+    <div className="space-y-5 select-text animate-fade-in-up">
       {/* Active Session Context Banner */}
       {activeSessionId && (
         <div className="bg-gradient-to-r from-blue-50/90 via-indigo-50/40 to-slate-50 border border-blue-200 rounded-2xl p-4.5 flex items-center justify-between shadow-sm animate-fade-in">
@@ -488,10 +552,21 @@ export default function Candidates({
         </button>
         <button 
           onClick={handleExport} 
-          className="bg-[#0B57D0] hover:bg-[#0842a0] text-white px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm outline-none cursor-pointer"
-          title="Export to Excel"
+          disabled={exporting || candidates.length === 0}
+          className="bg-[#0B57D0] hover:bg-[#0842a0] disabled:opacity-50 text-white px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm outline-none cursor-pointer active:scale-95"
+          title="Export to Excel (.xlsx)"
         >
-          📥 Export
+          {exporting ? (
+            <>
+              <span className="animate-spin">↻</span>
+              <span>Exporting...</span>
+            </>
+          ) : (
+            <>
+              <span>📥</span>
+              <span>Export</span>
+            </>
+          )}
         </button>
       </div>
 
@@ -573,7 +648,7 @@ export default function Candidates({
 
       {/* Candidate Grid list */}
       {filtered.length === 0 ? (
-        <div className="bg-white border border-slate-200 rounded-2xl p-12 text-center shadow-sm select-none">
+        <div className="bg-white border border-slate-200 rounded-2xl p-12 text-center shadow-sm">
           <span className="text-3xl">👥</span>
           <h3 className="text-sm font-semibold text-slate-850 mt-3">
             {candidates.length === 0
@@ -805,7 +880,26 @@ export default function Candidates({
 
                 {/* Candidate detailed profile expansion panel */}
                 {expandedId === c.id && (
-                  <div className="mt-5 pt-5 border-t border-dashed border-slate-200 space-y-5">
+                  <div className="mt-5 pt-5 border-t border-dashed border-slate-200 space-y-5 select-text">
+                    {/* Top bar with quick copy action */}
+                    <div className="flex items-center justify-between bg-slate-50 border border-slate-200/80 rounded-xl px-4 py-2.5">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-bold text-slate-700 uppercase tracking-wider">Candidate Detailed Profile</span>
+                        <span className="text-[9px] bg-blue-100 text-blue-800 px-2 py-0.5 rounded font-bold">
+                          {c.full_name} · {c.current_title || 'N/A'}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => copyCandidateDetails(c)}
+                        className="bg-white hover:bg-slate-100 text-slate-800 px-3 py-1.5 rounded-lg text-xs font-bold border border-slate-200 shadow-sm flex items-center gap-1.5 transition-all outline-none cursor-pointer active:scale-95"
+                        title="Copy all candidate details to clipboard"
+                      >
+                        <span>📋</span>
+                        <span>Copy Profile Details</span>
+                      </button>
+                    </div>
+
                     {/* Sourcing & Profile Details Grid */}
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 bg-[#f8fafc] rounded-2xl p-5 text-xs border border-slate-200/50">
                       <div>

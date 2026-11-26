@@ -619,20 +619,33 @@ async def export_candidates(
         from openpyxl import Workbook
         from openpyxl.styles import Font, PatternFill
 
-        # Fetch candidates ordered by fitment_score desc
-        stmt = (
-            select(CandidateRecord)
-            .join(SearchSessionRecord, CandidateRecord.search_session_id == SearchSessionRecord.session_id)
-            .where(SearchSessionRecord.user_id == current_user.id)
+        # Fetch candidates scoped strictly to the current user's search sessions
+        sess_res = await db.execute(
+            select(SearchSessionRecord.session_id).where(SearchSessionRecord.user_id == current_user.id)
         )
-        if session_id and session_id.strip() and session_id.strip().lower() != "all":
-            stmt = stmt.where(CandidateRecord.search_session_id == session_id.strip())
-        if role_name and role_name.strip() and role_name.strip().lower() != "all":
-            stmt = stmt.where(CandidateRecord.role_name == role_name.strip())
+        user_session_ids = [r[0] for r in sess_res.all()]
 
-        stmt = stmt.order_by(CandidateRecord.fitment_score.desc())
-        result = await db.execute(stmt)
-        rows = result.scalars().all()
+        if not user_session_ids:
+            rows = []
+        else:
+            stmt = select(CandidateRecord).where(
+                CandidateRecord.source != "mock",
+                CandidateRecord.search_session_id.in_(user_session_ids)
+            )
+            if session_id and session_id.strip() and session_id.strip().lower() != "all":
+                if session_id.strip() in user_session_ids:
+                    stmt = stmt.where(CandidateRecord.search_session_id == session_id.strip())
+                else:
+                    user_session_ids = []
+            if role_name and role_name.strip() and role_name.strip().lower() != "all":
+                stmt = stmt.where(CandidateRecord.role_name == role_name.strip())
+
+            if user_session_ids:
+                stmt = stmt.order_by(CandidateRecord.fitment_score.desc())
+                result = await db.execute(stmt)
+                rows = result.scalars().all()
+            else:
+                rows = []
 
         wb = Workbook()
         ws = wb.active

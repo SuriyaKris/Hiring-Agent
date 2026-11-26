@@ -185,7 +185,7 @@ export default function Pipeline({ onCandidatesReady }) {
   }
 
   return (
-    <div className="space-y-6 select-none animate-fade-in-up">
+    <div className="space-y-6 animate-fade-in-up select-text">
       {/* Step Indicators */}
       <div className="flex items-center gap-2 px-1">
         <span className={`text-[11px] font-bold px-3 py-1 rounded-lg border transition-all ${
