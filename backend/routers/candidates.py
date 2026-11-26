@@ -315,6 +315,33 @@ def _calculate_time_in_current_role(employment_history) -> str:
     return f"{months} month{'s' if months > 1 else ''}"
 
 
+def _deduplicate_candidate_records(rows):
+    """Deduplicate CandidateRecord objects keeping the highest fitment score entry."""
+    seen = set()
+    unique = []
+    for r in rows:
+        li = (r.linkedin_url or "").lower().strip().rstrip("/")
+        if li in ("https://linkedin.com/in", "https://www.linkedin.com/in", "https://linkedin.com/in/", "https://www.linkedin.com/in/"):
+            li = ""
+        apollo_id = (r.apollo_person_id or "").strip()
+        email = (r.personal_email or r.email or "").lower().strip()
+        name = (r.full_name or "").lower().strip()
+        comp = (r.current_company or "").lower().strip()
+        name_company = f"{name}|{comp}" if (name and comp) else ""
+
+        key = (
+            (f"li:{li}" if li else None)
+            or (f"apollo:{apollo_id}" if apollo_id else None)
+            or (f"email:{email}" if email else None)
+            or (f"nc:{name_company}" if name_company else None)
+            or f"id:{r.id}"
+        )
+        if key not in seen:
+            seen.add(key)
+            unique.append(r)
+    return unique
+
+
 def _normalize_raw_json(raw_json_str: str, source: str) -> dict:
     """Parse raw_json string and normalize it to CandidateProfile dict format on the fly if needed."""
     try:
@@ -505,7 +532,7 @@ async def get_candidates(
 
     stmt = stmt.order_by(CandidateRecord.fitment_score.desc())
     result = await db.execute(stmt)
-    rows = result.scalars().all()
+    rows = _deduplicate_candidate_records(result.scalars().all())
 
     return [
         {
@@ -643,7 +670,7 @@ async def export_candidates(
             if user_session_ids:
                 stmt = stmt.order_by(CandidateRecord.fitment_score.desc())
                 result = await db.execute(stmt)
-                rows = result.scalars().all()
+                rows = _deduplicate_candidate_records(result.scalars().all())
             else:
                 rows = []
 

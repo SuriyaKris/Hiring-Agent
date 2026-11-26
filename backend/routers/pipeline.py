@@ -91,9 +91,26 @@ async def run_full_pipeline(
         ))
 
         # Store candidate details in SQLite database scoped to this search session
+        seen_in_run = set()
         for c in result.candidates:
             linkedin = (c.profile.basic_info.linkedin_url or "").strip()
-            apollo_id = c.profile.metadata.apollo_person_id
+            apollo_id = (c.profile.metadata.apollo_person_id or "").strip()
+            bi = c.profile.basic_info
+            name = (bi.full_name or "").lower().strip()
+            current_job = c.profile.experience[0] if c.profile.experience else None
+            current_company = current_job.company_name if current_job else (c.profile.company.name if c.profile.company else "")
+            comp = (current_company or "").lower().strip()
+            name_comp = f"{name}|{comp}" if (name and comp) else ""
+
+            li_key = linkedin.lower().rstrip("/")
+            if li_key in ("https://linkedin.com/in", "https://www.linkedin.com/in", "https://linkedin.com/in/", "https://www.linkedin.com/in/"):
+                li_key = ""
+
+            run_key = (f"li:{li_key}" if li_key else None) or (f"apollo:{apollo_id}" if apollo_id else None) or (f"nc:{name_comp}" if name_comp else None)
+            if run_key and run_key in seen_in_run:
+                continue
+            if run_key:
+                seen_in_run.add(run_key)
 
             existing_row = None
             if linkedin:

@@ -258,6 +258,34 @@ async def node_ranking_agent(state: HiringState) -> HiringState:
         
         # Sort candidates descending by fitment score
         scored.sort(key=lambda x: x.fitment_score, reverse=True)
+
+        # Deduplicate candidates by identity (LinkedIn URL, Apollo person ID, Email, or Full Name + Company)
+        seen_identities = set()
+        deduped = []
+        for c in scored:
+            li = (c.profile.basic_info.linkedin_url or "").lower().strip().rstrip("/")
+            if li in ("https://linkedin.com/in", "https://www.linkedin.com/in", "https://linkedin.com/in/", "https://www.linkedin.com/in/"):
+                li = ""
+            apollo_id = (c.profile.metadata.apollo_person_id or "").strip()
+            email = (getattr(c.profile.basic_info, "personal_email", None) or c.profile.basic_info.email or "").lower().strip()
+            name = (c.profile.basic_info.full_name or "").lower().strip()
+            current_job = c.profile.experience[0] if c.profile.experience else None
+            comp = ((current_job.company_name if current_job else (c.profile.company.name if c.profile.company else "")) or "").lower().strip()
+            name_comp = f"{name}|{comp}" if (name and comp) else ""
+
+            key = (
+                (f"li:{li}" if li else None)
+                or (f"apollo:{apollo_id}" if apollo_id else None)
+                or (f"email:{email}" if email else None)
+                or (f"nc:{name_comp}" if name_comp else None)
+            )
+            if key:
+                if key not in seen_identities:
+                    seen_identities.add(key)
+                    deduped.append(c)
+            else:
+                deduped.append(c)
+        scored = deduped
         
         # Apply company diversity filtering on the sorted scored candidates list
         from utils.diversifier import diversify_by_company

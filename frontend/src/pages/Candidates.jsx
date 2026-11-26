@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import axios from 'axios'
 import toast from 'react-hot-toast'
@@ -110,7 +110,6 @@ export default function Candidates({
   })
   const [loading, setLoading] = useState(!initialCandidates || initialCandidates.length === 0)
   const [filter, setFilter] = useState('all')
-  const [roleFilter, setRoleFilter] = useState('all')
   const [search, setSearch] = useState('')
   const [expandedId, setExpandedId] = useState(null)
   const [useEngineered, setUseEngineered] = useState(true)
@@ -129,7 +128,49 @@ export default function Candidates({
   const [enrichingUrl, setEnrichingUrl] = useState(null)
   const [exporting, setExporting] = useState(false)
 
-  const shortlistedCandidates = candidates.filter(c => c.recruiter_verdict?.toLowerCase() === 'shortlist')
+  // Deduplicate candidates by unique identity (LinkedIn URL, Apollo ID, Email, or Name+Company)
+  const uniqueCandidates = useMemo(() => {
+    const seen = new Set()
+    const result = []
+
+    for (const c of candidates) {
+      let li = (c.linkedin_url || '').toLowerCase().trim().replace(/\/+$/, '')
+      if (li === 'https://linkedin.com/in' || li === 'https://www.linkedin.com/in' || !li) {
+        li = ''
+      }
+
+      const apolloId = (c.apollo_person_id || '').toString().trim()
+      const email = (c.email || c.personal_email || '').toLowerCase().trim()
+      const name = (c.full_name || '').toLowerCase().trim()
+      const company = (c.current_company || '').toLowerCase().trim()
+      const nameCompany = (name && company) ? `${name}|${company}` : ''
+
+      let key = null
+      if (li) {
+        key = `li:${li}`
+      } else if (apolloId) {
+        key = `apollo:${apolloId}`
+      } else if (email) {
+        key = `email:${email}`
+      } else if (nameCompany) {
+        key = `nc:${nameCompany}`
+      } else if (c.id) {
+        key = `id:${c.id}`
+      }
+
+      if (key) {
+        if (!seen.has(key)) {
+          seen.add(key)
+          result.push(c)
+        }
+      } else {
+        result.push(c)
+      }
+    }
+    return result
+  }, [candidates])
+
+  const shortlistedCandidates = uniqueCandidates.filter(c => c.recruiter_verdict?.toLowerCase() === 'shortlist')
   const shortlistedWithoutPhone = shortlistedCandidates.filter(c => !c.phone || !c.phone.trim())
 
   const startBulkOutreachQueue = () => {
@@ -293,8 +334,8 @@ export default function Candidates({
       if (activeSessionId && activeSessionId !== 'all') {
         params.session_id = activeSessionId
       }
-      if (roleFilter && roleFilter !== 'all') {
-        params.role_name = roleFilter
+      if (roleName && roleName !== 'all') {
+        params.role_name = roleName
       }
 
       const response = await axios.get('/api/candidates/export', {
@@ -309,7 +350,7 @@ export default function Candidates({
       const downloadUrl = window.URL.createObjectURL(blob)
       const link = document.createElement('a')
       link.href = downloadUrl
-      const rolePrefix = (roleFilter || roleName || 'candidates')
+      const rolePrefix = (roleName || 'candidates')
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, '_')
         .slice(0, 30)
@@ -420,9 +461,7 @@ ${details.summary?.about || 'N/A'}
     }
   }
 
-  const availableRoles = Array.from(new Set(candidates.map(c => c.role_name).filter(Boolean)))
-
-  const sortedAndFiltered = [...candidates]
+  const sortedAndFiltered = [...uniqueCandidates]
     .sort((a, b) => {
       const aScore = useEngineered && a.profile_details?.engineered_fitment_score !== undefined
         ? a.profile_details.engineered_fitment_score
@@ -433,7 +472,6 @@ ${details.summary?.about || 'N/A'}
       return bScore - aScore;
     })
     .filter(c => filter === 'all' || c.recruiter_verdict === filter)
-    .filter(c => roleFilter === 'all' || c.role_name === roleFilter)
     .filter(c => !search || c.full_name.toLowerCase().includes(search.toLowerCase()) ||
       c.current_company.toLowerCase().includes(search.toLowerCase()) ||
       c.current_title.toLowerCase().includes(search.toLowerCase()))
@@ -500,18 +538,6 @@ ${details.summary?.about || 'N/A'}
           placeholder="Search name, company, title..."
           className="flex-1 bg-[#edf2fa] border border-slate-200/75 rounded-xl px-4.5 py-2.5 text-sm focus:outline-none focus:border-blue-500 focus:bg-white text-slate-800 transition-all font-semibold" 
         />
-        {availableRoles.length > 1 && (
-          <select
-            value={roleFilter}
-            onChange={e => setRoleFilter(e.target.value)}
-            className="border border-slate-200 bg-[#edf2fa] text-slate-800 font-bold rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
-          >
-            <option value="all">All Roles ({candidates.length})</option>
-            {availableRoles.map(r => (
-              <option key={r} value={r}>{r} ({candidates.filter(c => c.role_name === r).length})</option>
-            ))}
-          </select>
-        )}
         <div className="flex gap-1.5 bg-slate-100 p-1 rounded-xl">
           {['all', 'shortlist', 'maybe', 'pending', 'reject'].map(f => (
             <button key={f} onClick={() => setFilter(f)}
@@ -519,7 +545,7 @@ ${details.summary?.about || 'N/A'}
                 filter === f ? 'bg-white text-slate-850 shadow-sm border border-slate-200/40' : 'text-slate-500 hover:text-slate-800'
               }`}>
               {f.charAt(0).toUpperCase() + f.slice(1)}
-              {' '}({candidates.filter(c => f === 'all' ? true : c.recruiter_verdict === f).length})
+              {' '}({uniqueCandidates.filter(c => f === 'all' ? true : c.recruiter_verdict === f).length})
             </button>
           ))}
         </div>
@@ -552,7 +578,7 @@ ${details.summary?.about || 'N/A'}
         </button>
         <button 
           onClick={handleExport} 
-          disabled={exporting || candidates.length === 0}
+          disabled={exporting || uniqueCandidates.length === 0}
           className="bg-[#0B57D0] hover:bg-[#0842a0] disabled:opacity-50 text-white px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm outline-none cursor-pointer active:scale-95"
           title="Export to Excel (.xlsx)"
         >
@@ -578,7 +604,7 @@ ${details.summary?.about || 'N/A'}
             <span className="text-[9px] font-bold text-slate-400 tracking-wider uppercase">EXPERIENCE LEVEL:</span>
             <div className="flex flex-wrap gap-1.5">
               {['all', '0-1', '1-3', '3-5', '5-7', '7+'].map(opt => {
-                const count = candidates.filter(c => {
+                const count = uniqueCandidates.filter(c => {
                   const expStr = c.profile_details?.total_experience_years || "";
                   const expMatch = expStr.match(/^([0-9.]+)\s*year/);
                   const years = expMatch ? parseFloat(expMatch[1]) : 0;
@@ -630,13 +656,13 @@ ${details.summary?.about || 'N/A'}
       </div>
 
       {/* Stats Summary Cards */}
-      {candidates.length > 0 && (
+      {uniqueCandidates.length > 0 && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {[
-            { label: 'Total Sourced', val: candidates.length, color: 'text-slate-800' },
-            { label: 'Recommended Candidates', val: candidates.filter(c => c.recommended_action === 'Reach out now').length, color: 'text-green-700' },
-            { label: 'Shortlisted Candidates', val: candidates.filter(c => c.recruiter_verdict === 'shortlist').length, color: 'text-blue-700' },
-            { label: 'Average Match Score', val: Math.round(candidates.reduce((a, c) => a + c.fitment_score, 0) / candidates.length) + '%', color: 'text-slate-800' },
+            { label: 'Total Sourced', val: uniqueCandidates.length, color: 'text-slate-800' },
+            { label: 'Recommended Candidates', val: uniqueCandidates.filter(c => c.recommended_action === 'Reach out now').length, color: 'text-green-700' },
+            { label: 'Shortlisted Candidates', val: uniqueCandidates.filter(c => c.recruiter_verdict === 'shortlist').length, color: 'text-blue-700' },
+            { label: 'Average Match Score', val: (uniqueCandidates.length > 0 ? Math.round(uniqueCandidates.reduce((a, c) => a + c.fitment_score, 0) / uniqueCandidates.length) : 0) + '%', color: 'text-slate-800' },
           ].map(s => (
             <div key={s.label} className="bg-white rounded-2xl border border-slate-200 p-4 text-center shadow-sm">
               <p className={`text-2xl font-extrabold ${s.color}`}>{s.val}</p>
@@ -651,7 +677,7 @@ ${details.summary?.about || 'N/A'}
         <div className="bg-white border border-slate-200 rounded-2xl p-12 text-center shadow-sm">
           <span className="text-3xl">👥</span>
           <h3 className="text-sm font-semibold text-slate-850 mt-3">
-            {candidates.length === 0
+            {uniqueCandidates.length === 0
               ? 'No candidates found. Trigger a pipeline run.'
               : 'No candidates match your current filter.'}
           </h3>
